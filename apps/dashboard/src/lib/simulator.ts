@@ -121,8 +121,8 @@ export function stepSim(s: SimState, now: number) {
   s.tick++;
   s.now = now;
 
-  // Lifecycle transitions.
-  for (const inst of [...s.instances]) {
+  // Lifecycle transitions. Iterate a copy: finished instances are spliced out.
+  for (const inst of s.instances.slice()) {
     if (inst.lifecycle === 'Pending' && s.tick >= inst.readyTick) {
       inst.lifecycle = 'InService';
       log(s, 'LAUNCH', 'Successful', `Instance ${inst.id} is InService`, inst.id, 'passed ELB health checks');
