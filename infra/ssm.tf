@@ -1,8 +1,26 @@
 # App config lives in SSM Parameter Store, one parameter per env var:
 #   /loadforge/server/<KEY>     read by the API instances
 #   /loadforge/dashboard/<KEY>  read by the dashboard instance
-# Instances turn their path into an env file at boot (user-data.sh.tftpl),
-# so a changed value needs an instance restart or refresh to apply.
+# plus which image to run:
+#   /loadforge/deploy/<app>-image
+# Instances read them in /usr/local/bin/loadforge-deploy (user-data.sh.tftpl),
+# so a changed value needs a redeploy (CI) or instance refresh to apply.
+
+# Terraform only seeds these; CI sets them to the image it just pushed.
+resource "aws_ssm_parameter" "image" {
+  for_each = {
+    server    = var.server_image
+    dashboard = var.dashboard_image
+  }
+
+  name  = "/${var.project}/deploy/${each.key}-image"
+  type  = "String"
+  value = each.value
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
 
 locals {
   server_env = {

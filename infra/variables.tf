@@ -28,14 +28,15 @@ variable "domain_name" {
 }
 
 variable "server_image" {
-  description = "API image, built and pushed with scripts/push-images.sh."
+  description = "First API image. After that CI sets /loadforge/deploy/server-image."
   type        = string
   default     = "ghcr.io/nghoangquan175/loadforge-server:latest"
 }
 
 variable "dashboard_image" {
-  type    = string
-  default = "ghcr.io/nghoangquan175/loadforge-dashboard:latest"
+  description = "First dashboard image. After that CI sets /loadforge/deploy/dashboard-image."
+  type        = string
+  default     = "ghcr.io/nghoangquan175/loadforge-dashboard:latest"
 }
 
 variable "ghcr_user" {

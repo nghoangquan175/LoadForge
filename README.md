@@ -74,23 +74,30 @@ Internet ─► ALB :80 (redirect) / :443 (*.quannh.xyz cert)
 ```
 
 Instances pull private images from GHCR and read their env from SSM Parameter Store
-(`/loadforge/server/*`, `/loadforge/dashboard/*`).
+(`/loadforge/server/*`, `/loadforge/dashboard/*`). The image to run is in
+`/loadforge/deploy/<app>-image`.
 
-One-time setup:
+### CI/CD (`.github/workflows/deploy.yml`)
+
+On every push to `main` that touches `apps/`:
+
+1. **test**: lint, server unit + e2e tests, dashboard type check
+2. **build**: both images to GHCR, tagged with the git sha and `latest`
+3. **deploy** (needs repo variable `AWS_DEPLOY_ROLE_ARN`):
+   - sets `/loadforge/deploy/<app>-image` to the new sha
+   - API: starts an ASG **instance refresh**; new instances boot with the new image
+   - dashboard: **SSM Run Command** runs `/usr/local/bin/loadforge-deploy` on the instance
+
+Rollback: set the parameter to an older sha, then start an instance refresh.
+
+### One-time setup
 
 1. `infra/certificate`: `terraform apply`, add the validation CNAME at your DNS.
 2. SSM parameter `/loadforge/ghcr-token` (SecureString): GitHub classic token with `read:packages`.
-3. Log Docker in to GHCR with `write:packages`:
-   `gh auth refresh -s write:packages` then `gh auth token | docker login ghcr.io -u <user> --password-stdin`
+3. `infra/ci`: `terraform apply`, then
+   `gh variable set AWS_DEPLOY_ROLE_ARN --body "$(terraform output -raw deploy_role_arn)"`
+4. `infra`: `terraform apply`, then add a CNAME `loadforge` -> `alb_dns_name` (DNS only).
+   Dashboard password: `terraform output -raw dashboard_password`
 
-Each deploy:
-
-```bash
-scripts/push-images.sh          # build + push both images
-cd infra && terraform apply     # infrastructure
-terraform output -raw dashboard_password
-```
-
-Add a CNAME `loadforge` -> `alb_dns_name` (DNS only). New images reach running
-instances on replacement, e.g. an ASG instance refresh.
-`terraform destroy` in `infra/` removes everything except the certificate.
+`terraform destroy` in `infra/` removes the app; the certificate and CI access stay.
+`scripts/push-images.sh` builds and pushes images by hand if you ever need to skip CI.

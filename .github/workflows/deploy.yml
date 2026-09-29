@@ -1,0 +1,146 @@
+# Test -> build images to GHCR -> roll them out on AWS.
+#
+# Deploy needs the repo variable AWS_DEPLOY_ROLE_ARN (from infra/ci).
+# Without it, or while the AWS stack is destroyed, only test and build run.
+
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT: loadforge
+  ASG_NAME: loadforge-asg
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # npm 10 fails to install this workspace, see README.
+      - run: npm install -g npm@11
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -w @loadforge/server
+      - run: npm run test:e2e -w @loadforge/server
+      # Route types (LayoutProps, ...) come from next typegen, not from git.
+      - run: npx next typegen && npx tsc --noEmit
+        working-directory: apps/dashboard
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        app: [server, dashboard]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/loadforge-${{ matrix.app }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/loadforge-${{ matrix.app }}:latest
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    needs: build
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Point SSM at the new images
+        run: |
+          for app in server dashboard; do
+            image="ghcr.io/${{ github.repository_owner }}/loadforge-$app:${{ github.sha }}"
+            aws ssm put-parameter --name "/$PROJECT/deploy/$app-image" --type String --overwrite --value "$image" >/dev/null
+            echo "$app -> $image"
+          done
+
+      - name: Roll the API Auto Scaling Group
+        run: |
+          found=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG_NAME" \
+            --query 'length(AutoScalingGroups)' --output text)
+          if [ "$found" = "0" ]; then
+            echo "::notice::$ASG_NAME not found (stack destroyed?), skipping"
+            exit 0
+          fi
+
+          # A newer image supersedes any refresh still running.
+          aws autoscaling cancel-instance-refresh --auto-scaling-group-name "$ASG_NAME" >/dev/null 2>&1 || true
+          for attempt in $(seq 1 20); do
+            if id=$(aws autoscaling start-instance-refresh --auto-scaling-group-name "$ASG_NAME" \
+                 --preferences '{"MinHealthyPercentage":50,"InstanceWarmup":60}' \
+                 --query InstanceRefreshId --output text 2>err.txt); then
+              break
+            fi
+            grep -q InstanceRefreshInProgress err.txt || { cat err.txt; exit 1; }
+            sleep 15
+          done
+          echo "instance refresh $id started"
+
+          for attempt in $(seq 1 80); do
+            read -r status pct <<<"$(aws autoscaling describe-instance-refreshes --auto-scaling-group-name "$ASG_NAME" \
+              --instance-refresh-ids "$id" --query 'InstanceRefreshes[0].[Status,PercentageComplete]' --output text)"
+            echo "$(date +%T) $status ${pct}%"
+            case "$status" in
+              Successful) exit 0 ;;
+              Failed|Cancelled|RollbackSuccessful|RollbackFailed) exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::warning::refresh still running after 20 minutes"
+
+      - name: Redeploy the dashboard instance
+        run: |
+          id=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=$PROJECT-web" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text)
+          if [ "$id" = "None" ] || [ -z "$id" ]; then
+            echo "::notice::dashboard instance not found, skipping"
+            exit 0
+          fi
+
+          cmd=$(aws ssm send-command --instance-ids "$id" --document-name AWS-RunShellScript \
+            --comment "deploy ${{ github.sha }}" \
+            --parameters 'commands=["/usr/local/bin/loadforge-deploy"]' \
+            --query Command.CommandId --output text)
+          aws ssm wait command-executed --command-id "$cmd" --instance-id "$id" || true
+          aws ssm get-command-invocation --command-id "$cmd" --instance-id "$id" \
+            --query '[Status,StandardOutputContent,StandardErrorContent]' --output text | tee result.txt
+          head -1 result.txt | grep -q '^Success'

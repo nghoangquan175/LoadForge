@@ -51,10 +51,10 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user-data.sh.tftpl", merge(local.user_data_vars, {
-    app        = "server"
-    image      = var.server_image
-    port       = 4000
-    param_path = "/${var.project}/server/"
+    app         = "server"
+    port        = 4000
+    image_param = aws_ssm_parameter.image["server"].name
+    env_path    = "/${var.project}/server/"
   })))
 
   # Instances read their config at boot.

@@ -80,10 +80,10 @@ resource "aws_instance" "web" {
   }
 
   user_data = templatefile("${path.module}/user-data.sh.tftpl", merge(local.user_data_vars, {
-    app        = "dashboard"
-    image      = var.dashboard_image
-    port       = 3100
-    param_path = "/${var.project}/dashboard/"
+    app         = "dashboard"
+    port        = 3100
+    image_param = aws_ssm_parameter.image["dashboard"].name
+    env_path    = "/${var.project}/dashboard/"
   }))
 
   # The instance reads its config at boot.
