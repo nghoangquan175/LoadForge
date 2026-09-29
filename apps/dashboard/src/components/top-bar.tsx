@@ -14,9 +14,10 @@ interface TopBarProps {
   asgName: string;
   region: string;
   clock: string;
+  canLogout: boolean;
 }
 
-export function TopBar({ link, source, asgName, region, clock }: TopBarProps) {
+export function TopBar({ link, source, asgName, region, clock, canLogout }: TopBarProps) {
   const key = link === 'live' ? (source === 'aws' ? 'live_aws' : 'live_mock') : link;
   const style = LINK_STYLE[key];
 
@@ -43,6 +44,13 @@ export function TopBar({ link, source, asgName, region, clock }: TopBarProps) {
         </span>
         <span className="hidden text-ink-2 sm:inline">{region}</span>
         <span className="text-ink tabular-nums">{clock} <span className="text-muted">UTC</span></span>
+        {canLogout && (
+          <form action="/auth/logout" method="post">
+            <button type="submit" className="border border-line px-2.5 py-1 text-ink-2 transition-colors hover:border-crit/60 hover:text-crit">
+              <span aria-hidden>⏻ </span>logout
+            </button>
+          </form>
+        )}
       </div>
     </header>
   );

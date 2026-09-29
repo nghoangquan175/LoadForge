@@ -9,7 +9,11 @@ export type LinkState = 'connecting' | 'live' | 'fallback';
 /** Give the server this long to send its first event before simulating. */
 const CONNECT_GRACE_MS = 2500;
 
+/** Empty string means same origin: the ALB routes /api/* to the API servers. */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+/** Absolute API base for display (k6 commands, error messages). Client only. */
+export const apiOrigin = () => API_URL || window.location.origin;
 
 /**
  * Streams dashboard snapshots from the server over SSE.

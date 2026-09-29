@@ -4,7 +4,7 @@ Auto-scaling playground. Learn traffic, load and resilience on AWS EC2.
 
 - `apps/dashboard`: Next.js dashboard, real-time via SSE (port 3100)
 - `apps/server`: NestJS API with AWS CloudWatch + Auto Scaling data and heavy load routes for k6 (port 4000)
-- `infra/`: Terraform (coming later)
+- `infra/`: Terraform for AWS (VPC, ALB, Auto Scaling Group)
 
 ## Requirements
 
@@ -58,3 +58,39 @@ Copy `apps/server/.env.example` to `apps/server/.env`.
 
 AWS credentials come from the normal AWS SDK chain (`aws configure`, env vars, or the EC2 instance role).
 Enable detailed monitoring on the instances to get 1-minute CPU data.
+
+## Dashboard login
+
+Set `DASHBOARD_USER`, `DASHBOARD_PASSWORD` and `AUTH_SECRET` for the dashboard.
+With no password, login is off in dev and every page is blocked in production.
+The API (`/api/*`) is not behind the login, so k6 can reach it.
+
+## Deploy to AWS
+
+```
+Internet ─► ALB :80 (redirect) / :443 (*.quannh.xyz cert)
+             ├─ /api/*  ─► API target group :4000 ─► Auto Scaling Group (1-6 x t3.micro)
+             └─ /*      ─► dashboard target group :3100 ─► 1 x t3.micro
+```
+
+Instances pull private images from GHCR and read their env from SSM Parameter Store
+(`/loadforge/server/*`, `/loadforge/dashboard/*`).
+
+One-time setup:
+
+1. `infra/certificate`: `terraform apply`, add the validation CNAME at your DNS.
+2. SSM parameter `/loadforge/ghcr-token` (SecureString): GitHub classic token with `read:packages`.
+3. Log Docker in to GHCR with `write:packages`:
+   `gh auth refresh -s write:packages` then `gh auth token | docker login ghcr.io -u <user> --password-stdin`
+
+Each deploy:
+
+```bash
+scripts/push-images.sh          # build + push both images
+cd infra && terraform apply     # infrastructure
+terraform output -raw dashboard_password
+```
+
+Add a CNAME `loadforge` -> `alb_dns_name` (DNS only). New images reach running
+instances on replacement, e.g. an ASG instance refresh.
+`terraform destroy` in `infra/` removes everything except the certificate.

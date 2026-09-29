@@ -1,7 +1,7 @@
 'use client';
 
 import { fmtCompact, fmtInt, fmtTime, last } from '@/lib/format';
-import { API_URL, useLiveSnapshot, useNow } from '@/lib/use-live-snapshot';
+import { API_URL, apiOrigin, useLiveSnapshot, useNow } from '@/lib/use-live-snapshot';
 import { ActivityLog } from './activity-log';
 import { Capacity } from './capacity';
 import { InstanceTable } from './instance-table';
@@ -33,7 +33,7 @@ function BootScreen() {
   );
 }
 
-export function Dashboard() {
+export function Dashboard({ canLogout }: { canLogout: boolean }) {
   const { snapshot, link } = useLiveSnapshot();
   const now = useNow();
 
@@ -57,12 +57,16 @@ export function Dashboard() {
         asgName={asg.name}
         region={snapshot.region}
         clock={fmtTime(now)}
+        canLogout={canLogout}
       />
 
       {link === 'fallback' && (
         <div className="border border-warn/40 bg-warn/5 px-4 py-2 text-xs text-warn">
           <span aria-hidden>▲ </span>
-          server unreachable at {API_URL} — showing a local simulation. Start it with <code className="text-ink">npm run dev:server</code>.
+          server unreachable at {apiOrigin()} — showing a local simulation.
+          {API_URL.includes('localhost') && (
+            <> Start it with <code className="text-ink">npm run dev:server</code>.</>
+          )}
         </div>
       )}
 

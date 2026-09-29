@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { k6Script, LOAD_ROUTES } from '@/lib/load-routes';
-import { API_URL } from '@/lib/use-live-snapshot';
+import { API_URL, apiOrigin } from '@/lib/use-live-snapshot';
 
 type FireResult =
   | { ok: true; ms: number; status: number; body: string }
@@ -16,7 +16,7 @@ export function LoadRoutes() {
 
   const route = LOAD_ROUTES.find((r) => r.key === active)!;
   const script = k6Script(route);
-  const command = `k6 run -e BASE_URL=${API_URL} ${route.key}.js`;
+  const command = `k6 run -e BASE_URL=${apiOrigin()} ${route.key}.js`;
 
   const copy = async () => {
     try {
@@ -37,7 +37,7 @@ export function LoadRoutes() {
       const body = await res.text();
       setResult({ ok: true, ms: Math.round(performance.now() - started), status: res.status, body });
     } catch {
-      setResult({ ok: false, error: `connection refused: ${API_URL} is offline` });
+      setResult({ ok: false, error: `connection refused: ${apiOrigin()} is offline` });
     } finally {
       setFiring(false);
     }
