@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored) to override defaults.
+
+# region             = "us-east-1"
+# domain_name        = "loadforge.quannh.xyz"
+# asg_desired        = 2
+# asg_max            = 6
+# target_cpu         = 60

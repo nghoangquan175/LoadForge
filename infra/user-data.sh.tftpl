@@ -1,0 +1,42 @@
+#!/bin/bash
+# Boots a LoadForge ${app} instance: pull its image from GHCR and run it.
+# Log: /var/log/loadforge-bootstrap.log
+# Rendered by Terraform: only $${...} and %%{...} are Terraform, plain $VAR is bash.
+set -euxo pipefail
+exec > >(tee -a /var/log/loadforge-bootstrap.log) 2>&1
+
+dnf install -y docker
+systemctl enable --now docker
+
+# Instance id for the X-Served-By header.
+IMDS_TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+
+# Private image: read-only GHCR token from SSM. Tracing is off so the token
+# never reaches the log, and we log out right after the pull.
+set +x
+aws ssm get-parameter --region ${region} --name ${ghcr_token_param} --with-decryption \
+  --query Parameter.Value --output text \
+  | docker login ghcr.io --username ${ghcr_user} --password-stdin
+set -x
+docker pull ${image}
+docker logout ghcr.io
+
+# Runtime config from SSM Parameter Store, root-only:
+#   ${param_path}KEY = value  ->  KEY=value
+install -d -m 700 /etc/loadforge
+set +x
+aws ssm get-parameters-by-path --region ${region} --path ${param_path} --with-decryption \
+  --query "Parameters[].[Name,Value]" --output text \
+  | awk -F'\t' '{ n = split($1, part, "/"); print part[n] "=" $2 }' > /etc/loadforge/app.env
+%{ if app == "server" ~}
+echo "INSTANCE_ID=$INSTANCE_ID" >> /etc/loadforge/app.env
+%{ endif ~}
+chmod 600 /etc/loadforge/app.env
+set -x
+cut -d= -f1 /etc/loadforge/app.env
+
+docker run -d --name loadforge --restart unless-stopped \
+  -p ${port}:${port} \
+  --env-file /etc/loadforge/app.env \
+  ${image}
