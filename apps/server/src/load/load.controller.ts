@@ -20,6 +20,8 @@ async function timed<T extends object>(route: string, input: Record<string, numb
     result,
     durationMs: Math.round((performance.now() - started) * 10) / 10,
     servedBy: SERVED_BY,
+    // Which Node worker on that server (WEB_CONCURRENCY > 1).
+    worker: process.pid,
   };
 }
 

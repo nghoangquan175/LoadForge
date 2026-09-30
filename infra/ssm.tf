@@ -32,6 +32,9 @@ locals {
     CORS_ORIGINS   = join(",", var.dashboard_origins)
     # Per-server request metrics for the dashboard's server view.
     PUBLISH_METRICS = "true"
+    # One Node worker per vCPU, so a server can really reach 100% CPU
+    # and the 60% target can trigger scale-out.
+    WEB_CONCURRENCY = "auto"
   }
 }
 

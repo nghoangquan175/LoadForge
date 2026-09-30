@@ -10,6 +10,7 @@ export class HealthController {
     return {
       status: 'ok',
       servedBy: SERVED_BY,
+      worker: process.pid,
       uptimeSec: Math.round(process.uptime()),
       rssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
       loadavg: loadavg().map((n) => Math.round(n * 100) / 100),
