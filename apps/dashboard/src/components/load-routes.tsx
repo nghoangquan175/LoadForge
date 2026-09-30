@@ -199,60 +199,75 @@ export function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boole
   );
 }
 
-const waitTone = (ms: number) => (ms >= 2000 ? 'text-crit' : ms >= 500 ? 'text-warn' : 'text-ink');
+type Health = 'ok' | 'busy' | 'overloaded' | 'error';
 
-/** How the load balancer spread this test's requests, per server. */
+const HEALTH: Record<Health, { label: string; dot: string; text: string; bar: string }> = {
+  ok: { label: 'ok', dot: 'bg-accent', text: 'text-accent', bar: 'bg-accent' },
+  busy: { label: 'busy', dot: 'bg-warn', text: 'text-warn', bar: 'bg-warn' },
+  overloaded: { label: 'overloaded', dot: 'bg-crit', text: 'text-crit', bar: 'bg-crit' },
+  error: { label: 'no server', dot: 'bg-crit', text: 'text-crit', bar: 'bg-crit' },
+};
+
+/** Judged by how long requests waited in line on that server. */
+function healthOf(s: ServerStats): Health {
+  if (!s.workMs) return 'error';
+  if (s.waitMs >= 2000) return 'overloaded';
+  if (s.waitMs >= 500) return 'busy';
+  return 'ok';
+}
+
+/** How the load balancer spread this test's requests: one card per server. */
 function ServerReport({ servers }: { servers: ServerStats[] }) {
   const total = servers.reduce((sum, s) => sum + s.done + s.failed, 0);
   if (!total) return null;
 
   return (
     <div className="mt-2 border-t border-line pt-3">
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <span className="text-[10px] tracking-[0.18em] text-muted uppercase">per server · this test</span>
-        <span className="text-[10px] text-muted">wait = time in line on the server, recent</span>
+      <div className="mb-2 text-[10px] tracking-[0.18em] text-muted uppercase">
+        per server · {servers.length} answering
       </div>
-      <div className="-mx-1 overflow-x-auto px-1">
-        <table className="w-full min-w-[480px] text-left text-xs whitespace-nowrap">
-          <thead>
-            <tr className="text-[10px] tracking-widest text-muted uppercase">
-              <th className="pb-1.5 font-normal">server</th>
-              <th className="pb-1.5 text-right font-normal">done</th>
-              <th className="pb-1.5 pl-3 font-normal">share</th>
-              <th className="pb-1.5 text-right font-normal">wait</th>
-              <th className="pb-1.5 text-right font-normal">work</th>
-              <th className="pb-1.5 text-right font-normal">workers</th>
-            </tr>
-          </thead>
-          <tbody>
-            {servers.map((s) => {
-              const count = s.done + s.failed;
-              const share = (count / total) * 100;
-              const isServer = s.id.startsWith('i-') || s.workMs > 0;
-              return (
-                <tr key={s.id} className="border-t border-line/70">
-                  <td className={`py-1.5 pr-3 ${isServer ? 'text-ink' : 'text-crit'}`}>{s.id}</td>
-                  <td className="py-1.5 text-right tabular-nums">
-                    {fmtInt(s.done)}
-                    {s.failed > 0 && <span className="text-crit"> +{fmtInt(s.failed)} ✖</span>}
-                  </td>
-                  <td className="py-1.5 pl-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-cyan/15">
-                        <div className="h-full rounded-full bg-cyan" style={{ width: `${share}%` }} />
-                      </div>
-                      <span className="w-10 text-right tabular-nums text-ink-2">{share.toFixed(0)}%</span>
-                    </div>
-                  </td>
-                  <td className={`py-1.5 text-right tabular-nums ${waitTone(s.waitMs)}`}>{isServer ? `${fmtInt(s.waitMs)} ms` : '—'}</td>
-                  <td className="py-1.5 text-right tabular-nums text-ink-2">{isServer ? `${fmtInt(s.workMs)} ms` : '—'}</td>
-                  <td className="py-1.5 text-right tabular-nums text-ink-2">{s.workers || '—'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <ul className="space-y-2">
+        {servers.map((s) => {
+          const health = HEALTH[healthOf(s)];
+          const share = ((s.done + s.failed) / total) * 100;
+          return (
+            <li key={s.id} className="rounded-[3px] border border-line bg-panel-2 px-3 py-2">
+              <div className="flex items-center gap-3">
+                <span className={`size-2 shrink-0 rounded-full ${health.dot}`} aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{s.id}</span>
+                <span className="text-sm text-ink tabular-nums">
+                  {fmtInt(s.done)}
+                  <span className="text-[10px] text-muted"> done</span>
+                  {s.failed > 0 && <span className="text-crit"> · {fmtInt(s.failed)} ✖</span>}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                  <div className={`h-full rounded-full ${health.bar}`} style={{ width: `${share}%` }} />
+                </div>
+                <span className="w-11 text-right text-xs font-semibold text-ink tabular-nums">{share.toFixed(0)}%</span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-ink-2">
+                <span className={health.text}>● {health.label}</span>
+                {s.workMs > 0 && (
+                  <>
+                    <span>
+                      wait <span className="text-ink tabular-nums">{fmtInt(s.waitMs)} ms</span>
+                    </span>
+                    <span>
+                      work <span className="text-ink tabular-nums">{fmtInt(s.workMs)} ms</span>
+                    </span>
+                    <span>
+                      workers <span className="text-ink tabular-nums">{s.workers}</span>
+                    </span>
+                  </>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-[10px] text-muted">wait = time a request stood in line on that server (recent). Over 500 ms busy, over 2 s overloaded.</p>
     </div>
   );
 }
