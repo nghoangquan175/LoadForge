@@ -17,6 +17,20 @@ const UI_REFRESH_MS = 250;
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished';
 
+/** Per server, from what each response says about itself (servedBy, worker, durationMs). */
+export interface ServerStats {
+  /** instance id, or why there was no server (e.g. HTTP 502 from the load balancer) */
+  id: string;
+  done: number;
+  failed: number;
+  /** recent time spent waiting in line: round trip minus the server's own work */
+  waitMs: number;
+  /** average time the server spent working on one request */
+  workMs: number;
+  /** different Node workers seen on this server */
+  workers: number;
+}
+
 export interface RunStats {
   status: RunStatus;
   total: number;
@@ -28,6 +42,7 @@ export interface RunStats {
   avgMs: number;
   /** time spent running, pauses excluded */
   elapsedMs: number;
+  servers: ServerStats[];
 }
 
 const IDLE: RunStats = {
@@ -40,7 +55,20 @@ const IDLE: RunStats = {
   inFlight: 0,
   avgMs: 0,
   elapsedMs: 0,
+  servers: [],
 };
+
+/** Weight of the newest response in the recent wait; ~last 10 responses. */
+const WAIT_ALPHA = 0.1;
+
+interface ServerTally {
+  done: number;
+  failed: number;
+  waitEma: number | null;
+  workSum: number;
+  workCount: number;
+  workers: Set<number>;
+}
 
 interface Live extends RunStats {
   url: string;
@@ -49,9 +77,10 @@ interface Live extends RunStats {
   bankedMs: number;
   /** start of the current run segment, null while not running */
   resumedAt: number | null;
+  tallies: Map<string, ServerTally>;
 }
 
-const idleLive = (): Live => ({ ...IDLE, url: '', latencySum: 0, bankedMs: 0, resumedAt: null });
+const idleLive = (): Live => ({ ...IDLE, url: '', latencySum: 0, bankedMs: 0, resumedAt: null, tallies: new Map() });
 
 export function useLoadRunner() {
   const [stats, setStats] = useState<RunStats>(IDLE);
@@ -74,6 +103,16 @@ export function useLoadRunner() {
       inFlight: s.inFlight,
       avgMs: done ? s.latencySum / done : 0,
       elapsedMs: activeMs(s),
+      servers: [...s.tallies.entries()]
+        .map(([id, t]) => ({
+          id,
+          done: t.done,
+          failed: t.failed,
+          waitMs: t.waitEma ?? 0,
+          workMs: t.workCount ? t.workSum / t.workCount : 0,
+          workers: t.workers.size,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
     });
   }, []);
 
@@ -96,14 +135,40 @@ export function useLoadRunner() {
     s.resumedAt = Date.now();
     const signal = abort.current!.signal;
 
+    const record = (id: string, roundTripMs: number, ok: boolean, workMs?: number, worker?: number) => {
+      let t = s.tallies.get(id);
+      if (!t) {
+        t = { done: 0, failed: 0, waitEma: null, workSum: 0, workCount: 0, workers: new Set() };
+        s.tallies.set(id, t);
+      }
+      if (ok) t.done++;
+      else t.failed++;
+      if (workMs !== undefined) {
+        t.workSum += workMs;
+        t.workCount++;
+        const wait = Math.max(0, roundTripMs - workMs);
+        t.waitEma = t.waitEma === null ? wait : t.waitEma * (1 - WAIT_ALPHA) + wait * WAIT_ALPHA;
+      }
+      if (worker !== undefined) t.workers.add(worker);
+    };
+
     const fire = () => {
       s.sent++;
       s.inFlight++;
       const t0 = performance.now();
       fetch(s.url, { cache: 'no-store', signal })
-        .then((res) => (res.ok ? s.ok++ : s.failed++))
+        .then(async (res) => {
+          // Our API says which server and worker answered and how long the work took.
+          const body = (await res.json().catch(() => ({}))) as { servedBy?: string; worker?: number; durationMs?: number };
+          const id = body.servedBy ?? (res.ok ? 'unknown' : `load balancer · HTTP ${res.status}`);
+          record(id, performance.now() - t0, res.ok, body.durationMs, body.worker);
+          if (res.ok) s.ok++;
+          else s.failed++;
+        })
         .catch(() => {
-          if (!signal.aborted) s.failed++;
+          if (signal.aborted) return;
+          s.failed++;
+          record('no response', performance.now() - t0, false);
         })
         .finally(() => {
           s.inFlight--;

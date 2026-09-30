@@ -39,6 +39,8 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
   const now = useNow();
   // null = average of all servers; otherwise one instance id.
   const [selected, setSelected] = useState<string | null>(null);
+  // While a load test exists its per-server report needs room: Instances and Load test go 50/50.
+  const [testActive, setTestActive] = useState(false);
 
   if (!snapshot || now === null) return <BootScreen />;
 
@@ -185,11 +187,11 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <Panel title="Instances" tag="autoscaling:DescribeAutoScalingGroups" className="xl:col-span-7">
+        <Panel title="Instances" tag="autoscaling:DescribeAutoScalingGroups" className={testActive ? "xl:col-span-6" : "xl:col-span-7"}>
           <InstanceTable instances={snapshot.instances} now={now} selected={server} canPick={canPick} onSelect={setSelected} />
         </Panel>
-        <Panel title="Load test" tag="GET /api/load/cpu" className="xl:col-span-5">
-          <LoadRoutes />
+        <Panel title="Load test" tag="GET /api/load/cpu" className={testActive ? "xl:col-span-6" : "xl:col-span-5"}>
+          <LoadRoutes onActiveChange={setTestActive} />
         </Panel>
       </div>
 

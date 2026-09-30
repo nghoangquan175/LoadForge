@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fmtDuration, fmtInt } from '@/lib/format';
 import { LOAD_ROUTE } from '@/lib/load-routes';
-import { MAX_RATE, MAX_TOTAL, type RunStatus, useLoadRunner } from '@/lib/use-load-runner';
+import { MAX_RATE, MAX_TOTAL, type RunStatus, type ServerStats, useLoadRunner } from '@/lib/use-load-runner';
 import { API_URL, apiOrigin } from '@/lib/use-live-snapshot';
 
 type Field = 'total' | 'minutes' | 'rate';
@@ -66,13 +66,15 @@ function validate(v: Record<Field, string>): string | null {
   return null;
 }
 
-export function LoadRoutes() {
+/** onActiveChange: a test exists (running, paused or finished), so the panel wants more room. */
+export function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boolean) => void }) {
   const [values, setValues] = useState<Record<Field, string>>({ total: '4800', minutes: '5', rate: '16' });
   // Fields the user typed, oldest first; the third one is computed.
   const [typed, setTyped] = useState<Field[]>(['minutes', 'rate']);
   const { stats, start, stop, resume, remove } = useLoadRunner();
   // The plan is fixed once a test exists; delete it to change it.
   const locked = stats.status !== 'idle';
+  useEffect(() => onActiveChange?.(locked), [locked, onActiveChange]);
 
   const route = LOAD_ROUTE;
   const url = `${API_URL}${route.path}?${route.query}`;
@@ -98,19 +100,9 @@ export function LoadRoutes() {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <div className="space-y-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-[2px] bg-cyan/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan">GET</span>
-          <code className="break-all text-ink">{route.path}<span className="text-muted">?{route.query}</span></code>
-        </div>
-        <p className="text-ink-2">
-          <span className="text-muted">how it works · </span>
-          {route.work}
-        </p>
-        <p className="text-warn">
-          <span aria-hidden>▲ </span>
-          {route.expect}
-        </p>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="rounded-[2px] bg-cyan/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan">GET</span>
+        <code className="break-all text-ink">{route.path}<span className="text-muted">?{route.query}</span></code>
       </div>
 
       <div className="rounded-[3px] border border-line bg-bg/80 p-3">
@@ -181,10 +173,11 @@ export function LoadRoutes() {
           <div className="h-1.5 overflow-hidden rounded-full bg-accent/15">
             <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${progress}%` }} />
           </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+          <dl className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-5">
             {[
               ['ok', fmtInt(stats.ok), 'text-accent'],
               ['failed', fmtInt(stats.failed), stats.failed ? 'text-crit' : 'text-ink'],
+              ['in flight', fmtInt(stats.inFlight), 'text-ink'],
               ['avg latency', done ? `${fmtInt(stats.avgMs)} ms` : '—', 'text-ink'],
               [
                 'rate',
@@ -198,9 +191,68 @@ export function LoadRoutes() {
               </div>
             ))}
           </dl>
+
+          <ServerReport servers={stats.servers} />
         </div>
       )}
+    </div>
+  );
+}
 
+const waitTone = (ms: number) => (ms >= 2000 ? 'text-crit' : ms >= 500 ? 'text-warn' : 'text-ink');
+
+/** How the load balancer spread this test's requests, per server. */
+function ServerReport({ servers }: { servers: ServerStats[] }) {
+  const total = servers.reduce((sum, s) => sum + s.done + s.failed, 0);
+  if (!total) return null;
+
+  return (
+    <div className="mt-2 border-t border-line pt-3">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="text-[10px] tracking-[0.18em] text-muted uppercase">per server · this test</span>
+        <span className="text-[10px] text-muted">wait = time in line on the server, recent</span>
+      </div>
+      <div className="-mx-1 overflow-x-auto px-1">
+        <table className="w-full min-w-[480px] text-left text-xs whitespace-nowrap">
+          <thead>
+            <tr className="text-[10px] tracking-widest text-muted uppercase">
+              <th className="pb-1.5 font-normal">server</th>
+              <th className="pb-1.5 text-right font-normal">done</th>
+              <th className="pb-1.5 pl-3 font-normal">share</th>
+              <th className="pb-1.5 text-right font-normal">wait</th>
+              <th className="pb-1.5 text-right font-normal">work</th>
+              <th className="pb-1.5 text-right font-normal">workers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {servers.map((s) => {
+              const count = s.done + s.failed;
+              const share = (count / total) * 100;
+              const isServer = s.id.startsWith('i-') || s.workMs > 0;
+              return (
+                <tr key={s.id} className="border-t border-line/70">
+                  <td className={`py-1.5 pr-3 ${isServer ? 'text-ink' : 'text-crit'}`}>{s.id}</td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {fmtInt(s.done)}
+                    {s.failed > 0 && <span className="text-crit"> +{fmtInt(s.failed)} ✖</span>}
+                  </td>
+                  <td className="py-1.5 pl-3">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-cyan/15">
+                        <div className="h-full rounded-full bg-cyan" style={{ width: `${share}%` }} />
+                      </div>
+                      <span className="w-10 text-right tabular-nums text-ink-2">{share.toFixed(0)}%</span>
+                    </div>
+                  </td>
+                  <td className={`py-1.5 text-right tabular-nums ${waitTone(s.waitMs)}`}>{isServer ? `${fmtInt(s.waitMs)} ms` : '—'}</td>
+                  <td className="py-1.5 text-right tabular-nums text-ink-2">{isServer ? `${fmtInt(s.workMs)} ms` : '—'}</td>
+                  <td className="py-1.5 text-right tabular-nums text-ink-2">{s.workers || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
