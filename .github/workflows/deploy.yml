@@ -101,11 +101,13 @@ jobs:
             exit 0
           fi
 
+          # Launch-before-terminate (min 100%, max 200%): a new server must be
+          # healthy before an old one stops, so no downtime even with 1 server.
           # A newer image supersedes any refresh still running.
           aws autoscaling cancel-instance-refresh --auto-scaling-group-name "$ASG_NAME" >/dev/null 2>&1 || true
           for attempt in $(seq 1 20); do
             if id=$(aws autoscaling start-instance-refresh --auto-scaling-group-name "$ASG_NAME" \
-                 --preferences '{"MinHealthyPercentage":50,"InstanceWarmup":60}' \
+                 --preferences '{"MinHealthyPercentage":100,"MaxHealthyPercentage":200,"InstanceWarmup":60}' \
                  --query InstanceRefreshId --output text 2>err.txt); then
               break
             fi

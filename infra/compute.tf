@@ -88,7 +88,9 @@ resource "aws_autoscaling_group" "app" {
   instance_refresh {
     strategy = "Rolling"
     preferences {
-      min_healthy_percentage = 50
+      # Launch new servers first, stop old ones after: no downtime.
+      min_healthy_percentage = 100
+      max_healthy_percentage = 200
     }
   }
 

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { fmtDuration, fmtInt } from '@/lib/format';
 import { LOAD_ROUTES } from '@/lib/load-routes';
-import { MAX_RATE, MAX_TOTAL, useLoadRunner } from '@/lib/use-load-runner';
+import { MAX_RATE, MAX_TOTAL, type RunStatus, useLoadRunner } from '@/lib/use-load-runner';
 import { API_URL, apiOrigin } from '@/lib/use-live-snapshot';
 
 type Field = 'total' | 'minutes' | 'rate';
@@ -17,9 +17,14 @@ const LABELS: Record<Field, string> = {
 
 const MAX_MINUTES = 60;
 
-type FireResult =
-  | { ok: true; ms: number; status: number; body: string }
-  | { ok: false; error: string };
+const BTN = 'cursor-pointer border px-3 py-1.5 text-xs font-semibold transition-colors';
+
+const STATUS_STYLE: Record<RunStatus, string> = {
+  idle: 'text-muted',
+  running: 'text-accent',
+  paused: 'text-warn',
+  finished: 'text-cyan',
+};
 
 const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
 const tidy = (n: number, digits: number) => String(Number(n.toFixed(digits)));
@@ -55,9 +60,9 @@ export function LoadRoutes() {
   const [values, setValues] = useState<Record<Field, string>>({ total: '4800', minutes: '5', rate: '16' });
   // Fields the user typed, oldest first; the third one is computed.
   const [typed, setTyped] = useState<Field[]>(['minutes', 'rate']);
-  const [firing, setFiring] = useState(false);
-  const [result, setResult] = useState<FireResult | null>(null);
-  const { stats, start, stop } = useLoadRunner();
+  const { stats, start, stop, resume, remove } = useLoadRunner();
+  // Plan and route are fixed once a test exists; delete it to change them.
+  const locked = stats.status !== 'idle';
 
   const route = LOAD_ROUTES.find((r) => r.key === active)!;
   const url = `${API_URL}${route.path}?${route.query}`;
@@ -76,21 +81,6 @@ export function LoadRoutes() {
     setTyped(order);
   };
 
-  const fire = async () => {
-    setFiring(true);
-    setResult(null);
-    const started = performance.now();
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      const body = await res.text();
-      setResult({ ok: true, ms: Math.round(performance.now() - started), status: res.status, body });
-    } catch {
-      setResult({ ok: false, error: `connection refused: ${apiOrigin()} is offline` });
-    } finally {
-      setFiring(false);
-    }
-  };
-
   const elapsed = stats.elapsedMs;
   const achieved = elapsed > 0 ? stats.sent / (elapsed / 1000) : 0;
   const progress = stats.total ? Math.min(100, (stats.sent / stats.total) * 100) : 0;
@@ -104,11 +94,8 @@ export function LoadRoutes() {
             key={r.key}
             role="tab"
             aria-selected={r.key === active}
-            disabled={stats.running}
-            onClick={() => {
-              setActive(r.key);
-              setResult(null);
-            }}
+            disabled={locked}
+            onClick={() => setActive(r.key)}
             className={`border px-2 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               r.key === active
                 ? 'border-accent/70 bg-accent/10 text-ink'
@@ -148,7 +135,7 @@ export function LoadRoutes() {
               <input
                 inputMode="decimal"
                 value={values[f]}
-                disabled={stats.running}
+                disabled={locked}
                 onChange={(e) => edit(f, e.target.value)}
                 className={`mt-1 w-full border bg-bg px-2 py-1.5 text-sm tabular-nums outline-none focus:border-accent/70 disabled:opacity-60 ${
                   f === derived ? 'border-cyan/40 text-cyan' : 'border-line text-ink'
@@ -157,7 +144,7 @@ export function LoadRoutes() {
             </label>
           ))}
         </div>
-        {error && !stats.running && (
+        {error && !locked && (
           <p className="mt-2 text-[11px] text-crit">
             <span aria-hidden>✖ </span>
             {error}
@@ -165,37 +152,40 @@ export function LoadRoutes() {
         )}
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {stats.running ? (
-            <button
-              onClick={stop}
-              className="border border-crit/70 bg-crit/10 px-3 py-1.5 text-xs font-semibold text-crit transition-colors hover:bg-crit/20"
-            >
-              ■ stop
-            </button>
-          ) : (
+          {stats.status === 'idle' && (
             <button
               onClick={() => start(url, Number(values.total), Number(values.rate))}
               disabled={!!error}
-              className="border border-accent/70 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className={`${BTN} border-accent/70 bg-accent/10 text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50`}
             >
               ▶ start load
             </button>
           )}
-          <button
-            onClick={fire}
-            disabled={firing || stats.running}
-            className="border border-line px-3 py-1.5 text-xs text-ink-2 transition-colors hover:border-accent/50 hover:text-ink disabled:opacity-50"
-          >
-            {firing ? 'firing…' : 'fire once'}
-          </button>
+          {stats.status === 'running' && (
+            <button onClick={stop} className={`${BTN} border-warn/70 bg-warn/10 text-warn hover:bg-warn/20`}>
+              ‖ stop
+            </button>
+          )}
+          {stats.status === 'paused' && (
+            <button onClick={resume} className={`${BTN} border-accent/70 bg-accent/10 text-accent hover:bg-accent/20`}>
+              ▶ continue
+            </button>
+          )}
+          {locked && (
+            <button onClick={remove} className={`${BTN} border-crit/60 text-crit hover:bg-crit/10`}>
+              ✕ delete test
+            </button>
+          )}
           <span className="text-[10px] text-muted">sent from this browser to {apiOrigin()}</span>
         </div>
       </div>
 
-      {stats.startedAt && (
+      {locked && (
         <div className="space-y-2 text-xs" aria-live="polite">
           <div className="flex items-center justify-between text-[10px] tracking-wider text-muted uppercase">
-            <span>{stats.running ? 'running' : 'finished'} · {fmtDuration(elapsed)}</span>
+            <span>
+              <span className={STATUS_STYLE[stats.status]}>{stats.status}</span> · {fmtDuration(elapsed)}
+            </span>
             <span className="tabular-nums">{fmtInt(stats.sent)} / {fmtInt(stats.total)}</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-accent/15">
@@ -206,7 +196,11 @@ export function LoadRoutes() {
               ['ok', fmtInt(stats.ok), 'text-accent'],
               ['failed', fmtInt(stats.failed), stats.failed ? 'text-crit' : 'text-ink'],
               ['avg latency', done ? `${fmtInt(stats.avgMs)} ms` : '—', 'text-ink'],
-              ['rate', `${achieved.toFixed(1)} / ${stats.rate} /s`, achieved < stats.rate * 0.9 && elapsed > 3000 ? 'text-warn' : 'text-ink'],
+              [
+                'rate',
+                `${achieved.toFixed(1)} / ${stats.rate} /s`,
+                stats.status === 'running' && achieved < stats.rate * 0.9 && elapsed > 3000 ? 'text-warn' : 'text-ink',
+              ],
             ].map(([k, v, cls]) => (
               <div key={k}>
                 <dt className="text-[10px] tracking-wider text-muted uppercase">{k}</dt>
@@ -217,17 +211,6 @@ export function LoadRoutes() {
         </div>
       )}
 
-      {result && !stats.running && (
-        <div className="min-w-0 truncate text-[11px]" aria-live="polite">
-          {result.ok ? (
-            <span className={result.status < 400 ? 'text-ink-2' : 'text-crit'}>
-              <span className="text-accent">HTTP {result.status}</span> · {result.ms}ms · <span className="text-muted">{result.body}</span>
-            </span>
-          ) : (
-            <span className="text-crit">✖ {result.error}</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }

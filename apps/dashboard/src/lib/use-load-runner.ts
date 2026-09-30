@@ -5,6 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // Sends requests from this browser at a steady rate, like k6's
 // constant-arrival-rate executor. Browsers cap open connections, so very high
 // rates hit MAX_IN_FLIGHT and the achieved rate falls behind the target.
+//
+// idle --start--> running --stop--> paused --continue--> running --...--> finished
+//   ^------------------------- delete (from any state) ----------------------'
 
 export const MAX_RATE = 200;
 export const MAX_TOTAL = 200_000;
@@ -12,8 +15,10 @@ const MAX_IN_FLIGHT = 300;
 const TICK_MS = 50;
 const UI_REFRESH_MS = 250;
 
+export type RunStatus = 'idle' | 'running' | 'paused' | 'finished';
+
 export interface RunStats {
-  running: boolean;
+  status: RunStatus;
   total: number;
   rate: number;
   sent: number;
@@ -21,13 +26,12 @@ export interface RunStats {
   failed: number;
   inFlight: number;
   avgMs: number;
+  /** time spent running, pauses excluded */
   elapsedMs: number;
-  startedAt: number | null;
-  endedAt: number | null;
 }
 
 const IDLE: RunStats = {
-  running: false,
+  status: 'idle',
   total: 0,
   rate: 0,
   sent: 0,
@@ -36,74 +40,130 @@ const IDLE: RunStats = {
   inFlight: 0,
   avgMs: 0,
   elapsedMs: 0,
-  startedAt: null,
-  endedAt: null,
 };
+
+interface Live extends RunStats {
+  url: string;
+  latencySum: number;
+  /** running time banked before the current run segment */
+  bankedMs: number;
+  /** start of the current run segment, null while not running */
+  resumedAt: number | null;
+}
+
+const idleLive = (): Live => ({ ...IDLE, url: '', latencySum: 0, bankedMs: 0, resumedAt: null });
 
 export function useLoadRunner() {
   const [stats, setStats] = useState<RunStats>(IDLE);
-  const live = useRef<RunStats & { latencySum: number }>({ ...IDLE, latencySum: 0 });
+  const live = useRef<Live>(idleLive());
   const timers = useRef<{ tick?: ReturnType<typeof setInterval>; ui?: ReturnType<typeof setInterval> }>({});
   const abort = useRef<AbortController | null>(null);
 
+  const activeMs = (s: Live) => s.bankedMs + (s.resumedAt !== null ? Date.now() - s.resumedAt : 0);
+
   const publish = useCallback(() => {
-    const { latencySum, ...s } = live.current;
+    const s = live.current;
     const done = s.ok + s.failed;
-    const elapsedMs = s.startedAt ? (s.endedAt ?? Date.now()) - s.startedAt : 0;
-    setStats({ ...s, avgMs: done ? latencySum / done : 0, elapsedMs });
+    setStats({
+      status: s.status,
+      total: s.total,
+      rate: s.rate,
+      sent: s.sent,
+      ok: s.ok,
+      failed: s.failed,
+      inFlight: s.inFlight,
+      avgMs: done ? s.latencySum / done : 0,
+      elapsedMs: activeMs(s),
+    });
   }, []);
 
-  const finish = useCallback(() => {
+  /**
+   * Stop scheduling new requests; ones already sent still finish.
+   * While paused the display keeps refreshing so those still count.
+   */
+  const halt = useCallback((status: RunStatus) => {
     clearInterval(timers.current.tick);
-    clearInterval(timers.current.ui);
-    live.current.running = false;
-    live.current.endedAt = Date.now();
-    publish();
-  }, [publish]);
+    if (status !== 'paused') clearInterval(timers.current.ui);
+    const s = live.current;
+    s.bankedMs = activeMs(s);
+    s.resumedAt = null;
+    s.status = status;
+  }, []);
 
-  const stop = useCallback(() => {
-    abort.current?.abort();
-    finish();
-  }, [finish]);
+  const run = useCallback(() => {
+    const s = live.current;
+    s.status = 'running';
+    s.resumedAt = Date.now();
+    const signal = abort.current!.signal;
+
+    const fire = () => {
+      s.sent++;
+      s.inFlight++;
+      const t0 = performance.now();
+      fetch(s.url, { cache: 'no-store', signal })
+        .then((res) => (res.ok ? s.ok++ : s.failed++))
+        .catch(() => {
+          if (!signal.aborted) s.failed++;
+        })
+        .finally(() => {
+          s.inFlight--;
+          s.latencySum += performance.now() - t0;
+        });
+    };
+
+    timers.current.tick = setInterval(() => {
+      // Requests that should have gone out by now, counting running time only.
+      const due = Math.min(s.total, Math.floor((activeMs(s) / 1000) * s.rate) + 1);
+      while (s.sent < due && s.inFlight < MAX_IN_FLIGHT) fire();
+      if (s.sent >= s.total && s.inFlight === 0) {
+        halt('finished');
+        publish();
+      }
+    }, TICK_MS);
+    clearInterval(timers.current.ui);
+    timers.current.ui = setInterval(publish, UI_REFRESH_MS);
+    publish();
+  }, [halt, publish]);
 
   const start = useCallback(
     (url: string, total: number, rate: number) => {
-      stop();
+      halt('idle');
+      abort.current?.abort();
       abort.current = new AbortController();
-      const signal = abort.current.signal;
-      const startedAt = Date.now();
-      live.current = { ...IDLE, running: true, total, rate, startedAt, latencySum: 0 };
-
-      const fire = () => {
-        const s = live.current;
-        s.sent++;
-        s.inFlight++;
-        const t0 = performance.now();
-        fetch(url, { cache: 'no-store', signal })
-          .then((res) => (res.ok ? s.ok++ : s.failed++))
-          .catch(() => {
-            if (!signal.aborted) s.failed++;
-          })
-          .finally(() => {
-            s.inFlight--;
-            s.latencySum += performance.now() - t0;
-          });
-      };
-
-      timers.current.tick = setInterval(() => {
-        const s = live.current;
-        // Requests that should have gone out by now, at a steady rate.
-        const due = Math.min(total, Math.floor(((Date.now() - startedAt) / 1000) * rate) + 1);
-        while (s.sent < due && s.inFlight < MAX_IN_FLIGHT) fire();
-        if (s.sent >= total && s.inFlight === 0) finish();
-      }, TICK_MS);
-      timers.current.ui = setInterval(publish, UI_REFRESH_MS);
-      publish();
+      live.current = { ...idleLive(), url, total, rate };
+      run();
     },
-    [finish, publish, stop],
+    [halt, run],
   );
 
-  useEffect(() => stop, [stop]);
+  const stop = useCallback(() => {
+    if (live.current.status !== 'running') return;
+    halt('paused');
+    publish();
+  }, [halt, publish]);
 
-  return { stats, start, stop };
+  const resume = useCallback(() => {
+    if (live.current.status !== 'paused') return;
+    run();
+  }, [run]);
+
+  /** Throw the test away: cancel open requests and clear the results. */
+  const remove = useCallback(() => {
+    halt('idle');
+    clearInterval(timers.current.ui);
+    abort.current?.abort();
+    live.current = idleLive();
+    setStats(IDLE);
+  }, [halt]);
+
+  useEffect(
+    () => () => {
+      clearInterval(timers.current.tick);
+      clearInterval(timers.current.ui);
+      abort.current?.abort();
+    },
+    [],
+  );
+
+  return { stats, start, stop, resume, remove };
 }
