@@ -78,7 +78,6 @@ export function InstanceTable({ instances, now, selected, onSelect }: InstanceTa
                   </button>
                   <div className="text-[10px] text-muted">
                     {inst.type} · {inst.privateIp ?? '—'}
-                    {isSelected && <span className="text-cyan"> · viewing</span>}
                   </div>
                 </td>
                 <td className="py-2 pr-3 text-ink-2">{inst.az}</td>
