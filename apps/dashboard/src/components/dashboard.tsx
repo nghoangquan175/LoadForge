@@ -1,6 +1,6 @@
 'use client';
 
-import { fmtCompact, fmtInt, fmtTime, last } from '@/lib/format';
+import { fmtCompact, fmtDateTime, fmtInt, fmtTime, last, TZ_LABEL } from '@/lib/format';
 import { API_URL, apiOrigin, useLiveSnapshot, useNow } from '@/lib/use-live-snapshot';
 import { ActivityLog } from './activity-log';
 import { Capacity } from './capacity';
@@ -56,7 +56,7 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
         source={snapshot.source}
         asgName={asg.name}
         region={snapshot.region}
-        clock={fmtTime(now)}
+        clock={fmtDateTime(now)}
         canLogout={canLogout}
       />
 
@@ -165,14 +165,14 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
         <Panel title="Instances" tag="autoscaling:DescribeAutoScalingGroups" className="xl:col-span-7">
           <InstanceTable instances={snapshot.instances} now={now} />
         </Panel>
-        <Panel title="Load routes · k6 targets" tag="GET /api/load/*" className="xl:col-span-5">
+        <Panel title="Load test" tag="GET /api/load/*" className="xl:col-span-5">
           <LoadRoutes />
         </Panel>
       </div>
 
       <footer className="flex flex-wrap justify-between gap-2 border-t border-line pt-3 text-[10px] tracking-wider text-muted uppercase">
         <span>loadforge v0.1 · source {snapshot.source} · period {metrics.periodSec}s</span>
-        <span className="tabular-nums">last update {fmtTime(snapshot.ts)}Z</span>
+        <span className="tabular-nums">last update {fmtTime(snapshot.ts)} {TZ_LABEL}</span>
       </footer>
     </main>
   );

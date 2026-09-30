@@ -60,6 +60,21 @@ export function toActivity(a: Activity): ScalingActivity {
   };
 }
 
+/**
+ * CloudWatch sends no datapoint for a minute with zero requests or zero
+ * errors. For count metrics that gap means 0, so fill it in over the window.
+ */
+export function fillMissing(points: MetricPoint[], start: number, end: number, periodSec: number): MetricPoint[] {
+  const step = periodSec * 1000;
+  const byPeriod = new Map(points.map((p) => [Math.round(p.t / step) * step, p.v]));
+  const filled: MetricPoint[] = [];
+  // Only whole periods: the current one is still filling up.
+  for (let t = Math.ceil(start / step) * step; t + step <= end; t += step) {
+    filled.push({ t, v: byPeriod.get(t) ?? 0 });
+  }
+  return filled;
+}
+
 function toPoints(result: MetricDataResult | undefined, scale = 1): MetricPoint[] {
   const ts = result?.Timestamps ?? [];
   const vs = result?.Values ?? [];
@@ -124,8 +139,14 @@ export class AwsSnapshotProvider implements SnapshotProvider {
       policies.ScalingPolicies?.find((p) => p.TargetTrackingConfiguration)?.TargetTrackingConfiguration
         ?.TargetValue ?? this.config.targetCpu;
 
+    const now = Date.now();
+    const countSeries = (id: string) =>
+      this.config.albArnSuffix
+        ? fillMissing(toPoints(metrics.get(id)), now - WINDOW_MIN * 60_000, now, PERIOD_SEC)
+        : [];
+
     return {
-      ts: Date.now(),
+      ts: now,
       source: 'aws',
       region: this.config.region,
       asg: {
@@ -142,9 +163,9 @@ export class AwsSnapshotProvider implements SnapshotProvider {
       metrics: {
         periodSec: PERIOD_SEC,
         cpu: toPoints(metrics.get('cpu')),
-        requests: toPoints(metrics.get('req')),
+        requests: countSeries('req'),
         latencyMs: toPoints(metrics.get('lat'), 1000),
-        errors5xx: toPoints(metrics.get('err')),
+        errors5xx: countSeries('err'),
       },
       activities: (activities.Activities ?? []).map(toActivity).sort((a, b) => b.time - a.time),
     };

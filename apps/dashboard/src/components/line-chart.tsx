@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { fmtTime } from '@/lib/format';
+import { fmtDateTime, fmtHourMinute, fmtTime } from '@/lib/format';
 import type { MetricPoint } from '@/lib/types';
 
 interface LineChartProps {
@@ -60,6 +60,9 @@ export function LineChart({ points, color, label, format, yMax, threshold, heigh
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
   const xTickIdx = [0, Math.round((points.length - 1) / 3), Math.round(((points.length - 1) * 2) / 3), points.length - 1];
 
+  // Minute data over an hour reads best as HH:MM; short mock windows need seconds.
+  const axisTime = t1 - t0 >= 10 * 60_000 ? fmtHourMinute : fmtTime;
+
   const lastPoint = points[points.length - 1];
   const hovered = hover !== null ? points[hover] : null;
 
@@ -102,7 +105,7 @@ export function LineChart({ points, color, label, format, yMax, threshold, heigh
               textAnchor={i === 0 ? 'start' : i === xTickIdx.length - 1 ? 'end' : 'middle'}
               className="fill-muted text-[10px] tabular-nums"
             >
-              {fmtTime(points[idx].t)}
+              {axisTime(points[idx].t)}
             </text>
           ))}
 
@@ -152,9 +155,9 @@ export function LineChart({ points, color, label, format, yMax, threshold, heigh
       {ready && hovered && (
         <div
           className="pointer-events-none absolute top-1 z-10 -translate-x-1/2 border border-line bg-bg/95 px-2 py-1 text-[11px] whitespace-nowrap shadow-lg"
-          style={{ left: Math.min(Math.max(x(hovered.t), PAD.l + 50), width - 50) }}
+          style={{ left: Math.min(Math.max(x(hovered.t), PAD.l + 70), width - 70) }}
         >
-          <div className="text-muted tabular-nums">{fmtTime(hovered.t)}Z</div>
+          <div className="text-muted tabular-nums">{fmtDateTime(hovered.t)}</div>
           <div className="font-semibold text-ink tabular-nums">{format(hovered.v)}</div>
         </div>
       )}

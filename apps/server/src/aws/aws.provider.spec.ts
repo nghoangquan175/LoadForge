@@ -1,4 +1,24 @@
-import { toActivity, toLifecycle } from './aws.provider.js';
+import { fillMissing, toActivity, toLifecycle } from './aws.provider.js';
+
+describe('fillMissing', () => {
+  const min = 60_000;
+
+  it('fills minutes without datapoints with 0', () => {
+    const start = 10 * min + 5_000;
+    const end = 14 * min + 30_000;
+    expect(fillMissing([{ t: 12 * min, v: 7 }], start, end, 60)).toEqual([
+      { t: 11 * min, v: 0 },
+      { t: 12 * min, v: 7 },
+      { t: 13 * min, v: 0 },
+    ]);
+  });
+
+  it('gives a flat zero line when there is no data at all', () => {
+    const points = fillMissing([], 0, 60 * min, 60);
+    expect(points).toHaveLength(60);
+    expect(points.every((p) => p.v === 0)).toBe(true);
+  });
+});
 
 describe('AWS mapping', () => {
   it('maps lifecycle states', () => {

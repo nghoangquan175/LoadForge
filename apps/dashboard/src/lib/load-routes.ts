@@ -4,9 +4,10 @@ export interface LoadRoute {
   bound: string;
   path: string;
   query: string;
-  params: { name: string; hint: string }[];
-  description: string;
-  lesson: string;
+  /** what one request does on the server */
+  work: string;
+  /** what to watch on the dashboard while it runs */
+  expect: string;
 }
 
 export const LOAD_ROUTES: LoadRoute[] = [
@@ -16,9 +17,8 @@ export const LOAD_ROUTES: LoadRoute[] = [
     bound: 'CPU',
     path: '/api/load/cpu',
     query: 'limit=300000',
-    params: [{ name: 'limit', hint: 'count primes up to N (max 5,000,000)' }],
-    description: 'Counts prime numbers up to `limit` by trial division. Pure CPU work on the event loop.',
-    lesson: 'CPU climbs past target, the alarm fires, the ASG scales out.',
+    work: 'Counts every prime number up to 300,000. About 30 ms of pure CPU per request, and the server can do nothing else meanwhile.',
+    expect: 'CPU climbs. Past the 60% target for a few minutes, the alarm fires and the ASG adds servers. When you stop, it removes them again (~15 min).',
   },
   {
     key: 'memory',
@@ -26,9 +26,8 @@ export const LOAD_ROUTES: LoadRoute[] = [
     bound: 'MEMORY',
     path: '/api/load/memory',
     query: 'size=500000',
-    params: [{ name: 'size', hint: 'random numbers to allocate and sort (max 5,000,000)' }],
-    description: 'Allocates `size` random numbers, sorts them and hashes the result. Heavy on heap and GC.',
-    lesson: 'Watch memory pressure and GC pauses push latency up before CPU does.',
+    work: 'Creates 500,000 random numbers, sorts them and hashes the result. Fills the heap, so the garbage collector has to work hard.',
+    expect: 'Response time goes up first. CPU rises too, because sorting is also CPU work.',
   },
   {
     key: 'io',
@@ -36,29 +35,7 @@ export const LOAD_ROUTES: LoadRoute[] = [
     bound: 'LATENCY',
     path: '/api/load/io',
     query: 'delay=300',
-    params: [{ name: 'delay', hint: 'ms to wait on a fake DB/API call (max 10,000)' }],
-    description: 'Waits `delay` ms on a fake downstream call. Almost no CPU, but every request is slow.',
-    lesson: 'Latency goes up, CPU stays low: CPU-based scaling will NOT help here.',
+    work: 'Waits 300 ms, like a slow database or outside API. Uses almost no CPU while waiting.',
+    expect: 'Response time goes up but CPU stays low, so CPU-based scaling does NOT add servers. Scaling on the wrong metric does not help.',
   },
 ];
-
-export function k6Script(route: LoadRoute): string {
-  return `import http from 'k6/http';
-import { check, sleep } from 'k6';
-
-export const options = {
-  stages: [
-    { duration: '1m', target: 50 },   // warm up
-    { duration: '3m', target: 200 },  // push past target CPU
-    { duration: '1m', target: 0 },    // cool down, watch scale-in
-  ],
-  thresholds: { http_req_duration: ['p(95)<800'] },
-};
-
-export default function () {
-  const res = http.get(\`\${__ENV.BASE_URL}${route.path}?${route.query}\`);
-  check(res, { 'status 200': (r) => r.status === 200 });
-  sleep(0.5);
-}
-`;
-}

@@ -1,3 +1,4 @@
+import { TZ_LABEL } from '@/lib/format';
 import type { LinkState } from '@/lib/use-live-snapshot';
 import type { DataSource } from '@/lib/types';
 
@@ -43,7 +44,7 @@ export function TopBar({ link, source, asgName, region, clock, canLogout }: TopB
           {style.label}
         </span>
         <span className="hidden text-ink-2 sm:inline">{region}</span>
-        <span className="text-ink tabular-nums">{clock} <span className="text-muted">UTC</span></span>
+        <span className="text-ink tabular-nums">{clock} <span className="text-muted">{TZ_LABEL}</span></span>
         {canLogout && (
           <form action="/auth/logout" method="post">
             <button type="submit" className="border border-line px-2.5 py-1 text-ink-2 transition-colors hover:border-crit/60 hover:text-crit">
