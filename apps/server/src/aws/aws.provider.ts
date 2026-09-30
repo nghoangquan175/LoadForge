@@ -28,7 +28,6 @@ import type { SnapshotProvider } from './snapshot-provider.js';
 
 const PERIOD_SEC = 60;
 const WINDOW_MIN = 60;
-const METRICS_TTL_MS = 55_000;
 
 /** Pending:Wait, Terminating:Proceed, ... -> the five states the dashboard knows. */
 export function toLifecycle(state: string | undefined): InstanceLifecycle {
@@ -92,7 +91,6 @@ export class AwsSnapshotProvider implements SnapshotProvider {
   private readonly autoscaling: AutoScalingClient;
   private readonly cloudwatch: CloudWatchClient;
   private readonly ec2: EC2Client;
-  private metricsCache: { key: string; at: number; data: Map<string, MetricDataResult> } | null = null;
 
   constructor(private readonly config: AppConfig) {
     if (!config.asgName) throw new Error('ASG_NAME is required for the AWS data source');
@@ -117,9 +115,9 @@ export class AwsSnapshotProvider implements SnapshotProvider {
     const members = group.Instances ?? [];
     const ids = members.map((m) => m.InstanceId).filter((id): id is string => !!id);
 
-    const [details, { data: metrics, at: metricsAt }] = await Promise.all([
+    const [details, metrics] = await Promise.all([
       this.describeInstances(ids),
-      this.cachedMetrics(asgName, ids),
+      this.getMetrics(asgName, ids),
     ]);
 
     const instances: Ec2Instance[] = members.map((m) => {
@@ -144,11 +142,9 @@ export class AwsSnapshotProvider implements SnapshotProvider {
         ?.TargetValue ?? this.config.targetCpu;
 
     const now = Date.now();
-    // Fill gaps up to when the (possibly cached) metrics were read, not now.
-    const windowEnd = metricsAt;
-    const windowStart = windowEnd - WINDOW_MIN * 60_000;
+    const windowStart = now - WINDOW_MIN * 60_000;
     const countSeries = (id: string) =>
-      this.config.albArnSuffix ? fillMissing(toPoints(metrics.get(id)), windowStart, windowEnd, PERIOD_SEC) : [];
+      this.config.albArnSuffix ? fillMissing(toPoints(metrics.get(id)), windowStart, now, PERIOD_SEC) : [];
 
     const byInstance: Record<string, InstanceMetrics> = {};
     ids.forEach((id, i) => {
@@ -156,9 +152,9 @@ export class AwsSnapshotProvider implements SnapshotProvider {
       const since = Math.max(windowStart, details.get(id)?.LaunchTime?.getTime() ?? windowStart);
       byInstance[id] = {
         cpu: toPoints(metrics.get(`cpu_${i}`)),
-        requests: fillMissing(toPoints(metrics.get(`req_${i}`)), since, windowEnd, PERIOD_SEC),
+        requests: fillMissing(toPoints(metrics.get(`req_${i}`)), since, now, PERIOD_SEC),
         latencyMs: toPoints(metrics.get(`lat_${i}`)),
-        errors5xx: fillMissing(toPoints(metrics.get(`err_${i}`)), since, windowEnd, PERIOD_SEC),
+        errors5xx: fillMissing(toPoints(metrics.get(`err_${i}`)), since, now, PERIOD_SEC),
       };
     });
 
@@ -199,20 +195,6 @@ export class AwsSnapshotProvider implements SnapshotProvider {
       }
     }
     return map;
-  }
-
-  /**
-   * CloudWatch has 1-minute data and bills GetMetricData per metric, so reuse
-   * the last result for a minute. The ASG and EC2 calls stay on the faster
-   * poll, so new or leaving servers still show up quickly.
-   */
-  private async cachedMetrics(asgName: string, ids: string[]): Promise<{ data: Map<string, MetricDataResult>; at: number }> {
-    const key = ids.join(',');
-    const c = this.metricsCache;
-    if (c && c.key === key && Date.now() - c.at < METRICS_TTL_MS) return c;
-    const data = await this.getMetrics(asgName, ids);
-    this.metricsCache = { key, at: Date.now(), data };
-    return this.metricsCache;
   }
 
   private async getMetrics(asgName: string, ids: string[]): Promise<Map<string, MetricDataResult>> {
