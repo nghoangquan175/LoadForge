@@ -1,4 +1,4 @@
-import type { AsgSummary } from '@/lib/types';
+import type { AsgSummary, Ec2Instance } from '@/lib/types';
 
 type SlotState = 'inService' | 'pending' | 'terminating' | 'empty';
 
@@ -9,8 +9,19 @@ const SLOT_STYLE: Record<SlotState, string> = {
   empty: 'border border-line bg-panel-2',
 };
 
-/** Hero figure: running instances plus a min / desired / max capacity strip. */
-export function Capacity({ asg }: { asg: AsgSummary }) {
+interface CapacityProps {
+  asg: AsgSummary;
+  instances: Ec2Instance[];
+  /** instance id whose report is shown, null = average of all */
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+}
+
+/**
+ * Hero figure: running instances plus a min / desired / max capacity strip,
+ * and the switch between the group average and one server's report.
+ */
+export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) {
   const slots: SlotState[] = [
     ...Array<SlotState>(asg.inService).fill('inService'),
     ...Array<SlotState>(asg.pending).fill('pending'),
@@ -53,6 +64,23 @@ export function Capacity({ asg }: { asg: AsgSummary }) {
           <li className="flex items-center gap-1.5"><span className="size-2.5 rounded-[2px] border border-crit bg-crit/20" />terminating {asg.terminating}</li>
         </ul>
       </div>
+
+      <label className="block">
+        <span className="text-[10px] tracking-[0.18em] text-muted uppercase">report for</span>
+        <select
+          value={selected ?? ''}
+          onChange={(e) => onSelect(e.target.value || null)}
+          className="mt-1.5 w-full cursor-pointer border border-line bg-bg px-2 py-2 text-xs text-ink outline-none focus:border-accent/70"
+        >
+          <option value="">average · all servers</option>
+          {instances.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.id} · {i.lifecycle.toLowerCase()}
+              {i.cpu !== null ? ` · ${i.cpu.toFixed(1)}%` : ''}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <dl className="grid grid-cols-3 border-t border-line pt-3 text-center">
         {([['min', asg.min], ['desired', asg.desired], ['max', asg.max]] as const).map(([k, v]) => (

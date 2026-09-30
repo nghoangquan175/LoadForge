@@ -13,6 +13,10 @@ export interface AppConfig {
   targetCpu: number;
   awsPollMs: number;
   mockTickMs: number;
+  /** publish this server's request metrics to CloudWatch (on AWS only) */
+  publishMetrics: boolean;
+  /** EC2 instance id, set by the deploy script */
+  instanceId?: string;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -40,5 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     targetCpu: int(env.TARGET_CPU, 60),
     awsPollMs: int(env.AWS_POLL_MS, 15_000),
     mockTickMs: int(env.MOCK_TICK_MS, 2_000),
+    publishMetrics: env.PUBLISH_METRICS === 'true',
+    instanceId: env.INSTANCE_ID || undefined,
   };
 }

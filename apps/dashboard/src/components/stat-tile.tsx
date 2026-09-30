@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { MetricPoint } from '@/lib/types';
 
 export type Severity = 'ok' | 'warn' | 'crit';
@@ -15,7 +16,7 @@ const SEVERITY_ICON: Record<Severity, string> = {
 };
 
 interface StatTileProps {
-  label: string;
+  label: ReactNode;
   value: string;
   unit?: string;
   /** CSS color of the metric's chart line, ties tile to chart */

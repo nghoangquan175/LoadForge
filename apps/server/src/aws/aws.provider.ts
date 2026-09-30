@@ -19,9 +19,11 @@ import type {
   DashboardSnapshot,
   Ec2Instance,
   InstanceLifecycle,
+  InstanceMetrics,
   MetricPoint,
   ScalingActivity,
 } from '../common/types.js';
+import { METRICS_NAMESPACE } from '../request-stats/request-stats.service.js';
 import type { SnapshotProvider } from './snapshot-provider.js';
 
 const PERIOD_SEC = 60;
@@ -140,10 +142,21 @@ export class AwsSnapshotProvider implements SnapshotProvider {
         ?.TargetValue ?? this.config.targetCpu;
 
     const now = Date.now();
+    const windowStart = now - WINDOW_MIN * 60_000;
     const countSeries = (id: string) =>
-      this.config.albArnSuffix
-        ? fillMissing(toPoints(metrics.get(id)), now - WINDOW_MIN * 60_000, now, PERIOD_SEC)
-        : [];
+      this.config.albArnSuffix ? fillMissing(toPoints(metrics.get(id)), windowStart, now, PERIOD_SEC) : [];
+
+    const byInstance: Record<string, InstanceMetrics> = {};
+    ids.forEach((id, i) => {
+      // Zeros only from launch on, not for minutes before the server existed.
+      const since = Math.max(windowStart, details.get(id)?.LaunchTime?.getTime() ?? windowStart);
+      byInstance[id] = {
+        cpu: toPoints(metrics.get(`cpu_${i}`)),
+        requests: fillMissing(toPoints(metrics.get(`req_${i}`)), since, now, PERIOD_SEC),
+        latencyMs: toPoints(metrics.get(`lat_${i}`)),
+        errors5xx: fillMissing(toPoints(metrics.get(`err_${i}`)), since, now, PERIOD_SEC),
+      };
+    });
 
     return {
       ts: now,
@@ -166,6 +179,7 @@ export class AwsSnapshotProvider implements SnapshotProvider {
         requests: countSeries('req'),
         latencyMs: toPoints(metrics.get('lat'), 1000),
         errors5xx: countSeries('err'),
+        byInstance,
       },
       activities: (activities.Activities ?? []).map(toActivity).sort((a, b) => b.time - a.time),
     };
@@ -199,7 +213,13 @@ export class AwsSnapshotProvider implements SnapshotProvider {
 
     const queries: MetricDataQuery[] = [
       stat('cpu', 'AWS/EC2', 'CPUUtilization', { AutoScalingGroupName: asgName }, 'Average'),
-      ...ids.map((id, i) => stat(`cpu_${i}`, 'AWS/EC2', 'CPUUtilization', { InstanceId: id }, 'Average')),
+      ...ids.flatMap((id, i) => [
+        stat(`cpu_${i}`, 'AWS/EC2', 'CPUUtilization', { InstanceId: id }, 'Average'),
+        // Published by each API server itself (RequestStatsService).
+        stat(`req_${i}`, METRICS_NAMESPACE, 'RequestCount', { InstanceId: id }, 'Sum'),
+        stat(`lat_${i}`, METRICS_NAMESPACE, 'Latency', { InstanceId: id }, 'Average'),
+        stat(`err_${i}`, METRICS_NAMESPACE, 'Http5xxCount', { InstanceId: id }, 'Sum'),
+      ]),
     ];
     const alb = this.config.albArnSuffix;
     if (alb) {

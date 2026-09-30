@@ -8,6 +8,7 @@ import type {
   ActivityStatus,
   DashboardSnapshot,
   Ec2Instance,
+  InstanceMetrics,
   MetricPoint,
   ScalingActivity,
 } from './types';
@@ -31,6 +32,7 @@ const COOLDOWN_TICKS = 5;
 interface SimInstance extends Ec2Instance {
   readyTick: number;
   goneTick?: number;
+  history: InstanceMetrics;
 }
 
 export interface SimState {
@@ -97,8 +99,13 @@ function makeInstance(s: SimState, lifecycle: 'Pending' | 'InService', launchedA
     cpu: null,
     privateIp: `10.0.${randInt(1, 3)}.${randInt(10, 250)}`,
     readyTick: s.tick + WARMUP_TICKS,
+    history: { cpu: [], requests: [], latencyMs: [], errors5xx: [] },
   };
 }
+
+const latencyAt = (cpu: number) => 35 + 600 * (cpu / 100) ** 4 + rand(-5, 5);
+const errorsAt = (cpu: number, reqs: number) =>
+  cpu > 88 ? reqs * ((cpu - 88) / 100) * 0.5 : Math.random() < 0.1 ? 1 : 0;
 
 function launch(s: SimState, cause: string) {
   const inst = makeInstance(s, 'Pending', s.now);
@@ -162,17 +169,23 @@ export function stepSim(s: SimState, now: number) {
   const avgCpu = serving.length
     ? serving.reduce((sum, i) => sum + (i.cpu ?? 0), 0) / serving.length
     : 0;
-  const latency = serving.length ? 35 + 600 * (avgCpu / 100) ** 4 + rand(-5, 5) : 0;
-  const errors = !serving.length
-    ? reqs
-    : avgCpu > 88
-      ? reqs * ((avgCpu - 88) / 100) * 0.5
-      : Math.random() < 0.1 ? 1 : 0;
+  const latency = serving.length ? latencyAt(avgCpu) : 0;
+  const errors = serving.length ? errorsAt(avgCpu, reqs) : reqs;
 
   push(s.cpu, now, round1(avgCpu));
   push(s.requests, now, Math.round(reqs));
   push(s.latencyMs, now, Math.round(latency));
   push(s.errors5xx, now, Math.round(errors));
+
+  // Each server's own view: only healthy in-service ones get traffic.
+  for (const inst of s.instances) {
+    const gets = serving.includes(inst) ? perInstance : 0;
+    const h = inst.history;
+    push(h.cpu, now, inst.cpu ?? 0);
+    push(h.requests, now, Math.round(gets));
+    push(h.latencyMs, now, gets ? Math.round(latencyAt(inst.cpu ?? 0)) : 0);
+    push(h.errors5xx, now, gets ? Math.round(errorsAt(inst.cpu ?? 0, gets)) : 0);
+  }
 
   // Now and then an instance fails its health check and gets replaced.
   if (serving.length > 1 && Math.random() < 0.004) {
@@ -239,6 +252,7 @@ export function createSim(now: number): SimState {
 }
 
 export function toSnapshot(s: SimState): DashboardSnapshot {
+  // Wire shape only: drop sim bookkeeping (readyTick, history, ...).
   const instances: Ec2Instance[] = s.instances.map((i) => ({
     id: i.id,
     type: i.type,
@@ -271,6 +285,17 @@ export function toSnapshot(s: SimState): DashboardSnapshot {
       requests: [...s.requests],
       latencyMs: [...s.latencyMs],
       errors5xx: [...s.errors5xx],
+      byInstance: Object.fromEntries(
+        s.instances.map((i) => [
+          i.id,
+          {
+            cpu: [...i.history.cpu],
+            requests: [...i.history.requests],
+            latencyMs: [...i.history.latencyMs],
+            errors5xx: [...i.history.errors5xx],
+          },
+        ]),
+      ),
     },
     activities: [...s.activities],
   };

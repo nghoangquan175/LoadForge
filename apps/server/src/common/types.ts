@@ -41,17 +41,27 @@ export interface MetricPoint {
   v: number;
 }
 
-export interface MetricSeries {
+export interface InstanceMetrics {
+  /** CPUUtilization, % */
+  cpu: MetricPoint[];
+  /** requests, per minute */
+  requests: MetricPoint[];
+  /** response time, ms */
+  latencyMs: MetricPoint[];
+  /** 5xx responses, per minute */
+  errors5xx: MetricPoint[];
+}
+
+/**
+ * Group level: CPU is the ASG average; requests, latency and 5xx come from
+ * the load balancer. byInstance holds the same series for each server
+ * (EC2 CPU plus what each API server reports about its own requests).
+ */
+export interface MetricSeries extends InstanceMetrics {
   /** seconds between points */
   periodSec: number;
-  /** ASG average CPUUtilization, % */
-  cpu: MetricPoint[];
-  /** load balancer requests, per minute */
-  requests: MetricPoint[];
-  /** load balancer target response time, ms */
-  latencyMs: MetricPoint[];
-  /** target 5xx responses, per minute */
-  errors5xx: MetricPoint[];
+  /** keyed by instance id */
+  byInstance: Record<string, InstanceMetrics>;
 }
 
 export type ActivityKind = 'LAUNCH' | 'TERMINATE' | 'ALARM' | 'INFO';

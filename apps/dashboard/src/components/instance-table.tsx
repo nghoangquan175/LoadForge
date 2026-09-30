@@ -23,7 +23,15 @@ function CpuMeter({ cpu }: { cpu: number | null }) {
   );
 }
 
-export function InstanceTable({ instances, now }: { instances: Ec2Instance[]; now: number }) {
+interface InstanceTableProps {
+  instances: Ec2Instance[];
+  now: number;
+  selected: string | null;
+  /** click a row to see that server's report, click again for the average */
+  onSelect: (id: string | null) => void;
+}
+
+export function InstanceTable({ instances, now, selected, onSelect }: InstanceTableProps) {
   const rows = [...instances].sort((a, b) => a.launchedAt - b.launchedAt);
 
   if (!rows.length) {
@@ -35,7 +43,7 @@ export function InstanceTable({ instances, now }: { instances: Ec2Instance[]; no
       <table className="w-full min-w-[640px] text-left text-xs whitespace-nowrap">
         <thead>
           <tr className="text-[10px] tracking-widest text-muted uppercase">
-            <th className="pb-2 font-normal">instance</th>
+            <th className="pb-2 pl-2 font-normal">instance</th>
             <th className="pb-2 font-normal">zone</th>
             <th className="pb-2 font-normal">state</th>
             <th className="pb-2 font-normal">health</th>
@@ -46,11 +54,32 @@ export function InstanceTable({ instances, now }: { instances: Ec2Instance[]; no
         <tbody>
           {rows.map((inst) => {
             const lc = LIFECYCLE[inst.lifecycle];
+            const isSelected = inst.id === selected;
+            const toggle = () => onSelect(isSelected ? null : inst.id);
             return (
-              <tr key={inst.id} className="animate-slide-in border-t border-line/70 hover:bg-accent/[0.03]">
-                <td className="py-2 pr-3">
-                  <div className="text-ink">{inst.id}</div>
-                  <div className="text-[10px] text-muted">{inst.type} · {inst.privateIp ?? '—'}</div>
+              <tr
+                key={inst.id}
+                onClick={toggle}
+                aria-selected={isSelected}
+                className={`animate-slide-in cursor-pointer border-t border-line/70 ${
+                  isSelected ? 'bg-cyan/[0.07] shadow-[inset_2px_0_0_var(--color-cyan)]' : 'hover:bg-accent/[0.03]'
+                }`}
+              >
+                <td className="py-2 pr-3 pl-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggle();
+                    }}
+                    className={`text-left outline-none focus-visible:underline ${isSelected ? 'text-cyan' : 'text-ink'}`}
+                  >
+                    {inst.id}
+                  </button>
+                  <div className="text-[10px] text-muted">
+                    {inst.type} · {inst.privateIp ?? '—'}
+                    {isSelected && <span className="text-cyan"> · viewing</span>}
+                  </div>
                 </td>
                 <td className="py-2 pr-3 text-ink-2">{inst.az}</td>
                 <td className={`py-2 pr-3 ${lc.className}`}>

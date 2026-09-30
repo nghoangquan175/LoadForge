@@ -30,6 +30,8 @@ locals {
     ALB_ARN_SUFFIX = aws_lb.main.arn_suffix
     TARGET_CPU     = tostring(var.target_cpu)
     CORS_ORIGINS   = join(",", var.dashboard_origins)
+    # Per-server request metrics for the dashboard's server view.
+    PUBLISH_METRICS = "true"
   }
 }
 

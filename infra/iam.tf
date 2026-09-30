@@ -32,6 +32,20 @@ data "aws_iam_policy_document" "app_read" {
     resources = ["*"]
   }
 
+  # Each API server reports its own requests, latency and 5xx
+  # (RequestStatsService), only into the LoadForge namespace.
+  statement {
+    sid       = "PublishRequestMetrics"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["LoadForge"]
+    }
+  }
+
   # App config (/loadforge/server, /loadforge/dashboard) and the GHCR token.
   statement {
     sid       = "ReadConfig"

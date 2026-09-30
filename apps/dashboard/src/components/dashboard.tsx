@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { fmtCompact, fmtDateTime, fmtInt, fmtTime, last, TZ_LABEL } from '@/lib/format';
 import { API_URL, apiOrigin, useLiveSnapshot, useNow } from '@/lib/use-live-snapshot';
 import { ActivityLog } from './activity-log';
@@ -36,14 +37,21 @@ function BootScreen() {
 export function Dashboard({ canLogout }: { canLogout: boolean }) {
   const { snapshot, link } = useLiveSnapshot();
   const now = useNow();
+  // null = average of all servers; otherwise one instance id.
+  const [selected, setSelected] = useState<string | null>(null);
 
   if (!snapshot || now === null) return <BootScreen />;
 
   const { asg, metrics, targetCpu } = snapshot;
-  const cpu = last(metrics.cpu)?.v ?? 0;
-  const reqs = last(metrics.requests)?.v ?? 0;
-  const latency = last(metrics.latencyMs)?.v ?? 0;
-  const errors = last(metrics.errors5xx)?.v ?? 0;
+  // A selected server that has been terminated falls back to the average.
+  const server = selected && metrics.byInstance[selected] ? selected : null;
+  const view = server ? metrics.byInstance[server] : metrics;
+  const short = server ? `${server.slice(0, 10)}…` : '';
+
+  const cpu = last(view.cpu)?.v ?? 0;
+  const reqs = last(view.requests)?.v ?? 0;
+  const latency = last(view.latencyMs)?.v ?? 0;
+  const errors = last(view.errors5xx)?.v ?? 0;
 
   const cpuSeverity: Severity = cpu >= 90 ? 'crit' : cpu > targetCpu ? 'warn' : 'ok';
   const latencySeverity: Severity = latency >= 800 ? 'crit' : latency >= 300 ? 'warn' : 'ok';
@@ -72,82 +80,94 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <Panel title="Capacity" tag={`asg:${asg.name}`} className="lg:col-span-4">
-          <Capacity asg={asg} />
+          <Capacity asg={asg} instances={snapshot.instances} selected={server} onSelect={setSelected} />
         </Panel>
 
         <div className="grid grid-cols-2 gap-4 lg:col-span-8">
           <StatTile
-            label="Avg CPU"
+            label={server ? <>CPU · <span className="normal-case">{short}</span></> : 'Avg CPU'}
             value={cpu.toFixed(1)}
             unit="%"
             color="var(--color-accent)"
             severity={cpuSeverity}
-            trend={metrics.cpu}
-            note={cpuSeverity === 'ok' ? `under target ${targetCpu}%` : `over target ${targetCpu}% · scaling out`}
+            trend={view.cpu}
+            note={cpuSeverity === 'ok' ? `under target ${targetCpu}%` : `over target ${targetCpu}%${server ? '' : ' · scaling out'}`}
           />
           <StatTile
-            label="Requests"
+            label={server ? <>Requests · <span className="normal-case">{short}</span></> : 'Requests'}
             value={fmtCompact(reqs)}
             unit="/min"
             color="var(--color-cyan)"
             severity="ok"
-            trend={metrics.requests}
-            note={`${fmtInt(reqs / Math.max(asg.inService, 1))} per instance`}
+            trend={view.requests}
+            note={server ? 'handled by this server' : `${fmtInt(reqs / Math.max(asg.inService, 1))} per instance`}
           />
           <StatTile
-            label="Latency"
+            label={server ? <>Latency · <span className="normal-case">{short}</span></> : 'Latency'}
             value={fmtInt(latency)}
             unit="ms"
             color="var(--color-violet)"
             severity={latencySeverity}
-            trend={metrics.latencyMs}
-            note={latencySeverity === 'ok' ? 'target response time ok' : 'responses getting slow'}
+            trend={view.latencyMs}
+            note={latencySeverity === 'ok' ? 'response time ok' : 'responses getting slow'}
           />
           <StatTile
-            label="5xx errors"
+            label={server ? <>5xx · <span className="normal-case">{short}</span></> : '5xx errors'}
             value={fmtInt(errors)}
             unit="/min"
             color="var(--color-crit)"
             severity={errorSeverity}
-            trend={metrics.errors5xx}
-            note={errorSeverity === 'ok' ? 'no error spike' : 'instances overloaded'}
+            trend={view.errors5xx}
+            note={errorSeverity === 'ok' ? 'no error spike' : server ? 'this server is overloaded' : 'instances overloaded'}
           />
         </div>
       </div>
 
+      {server && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border border-cyan/40 bg-cyan/5 px-4 py-2 text-xs text-cyan">
+          <span>
+            <span aria-hidden>▸ </span>
+            showing one server: <span className="text-ink">{server}</span>
+          </span>
+          <button onClick={() => setSelected(null)} className="text-ink-2 underline-offset-2 hover:text-ink hover:underline">
+            back to average
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:col-span-8">
-          <Panel title="CPU utilization" tag="AWS/EC2 · CPUUtilization · avg">
+          <Panel title="CPU utilization" tag={server ? `AWS/EC2 · CPUUtilization · ${short}` : 'AWS/EC2 · CPUUtilization · avg'}>
             <LineChart
-              points={metrics.cpu}
+              points={view.cpu}
               color="var(--color-accent)"
-              label="Average CPU utilization"
+              label={server ? `CPU utilization of ${server}` : 'Average CPU utilization'}
               format={(v) => `${v.toFixed(1)}%`}
               yMax={100}
               threshold={{ value: targetCpu, label: `target ${targetCpu}%` }}
             />
           </Panel>
-          <Panel title="Request rate" tag="AWS/ApplicationELB · RequestCount">
+          <Panel title="Request rate" tag={server ? `LoadForge · RequestCount · ${short}` : 'AWS/ApplicationELB · RequestCount'}>
             <LineChart
-              points={metrics.requests}
+              points={view.requests}
               color="var(--color-cyan)"
               label="Requests per minute"
               format={(v) => `${fmtInt(v)} req/min`}
             />
           </Panel>
-          <Panel title="Response time" tag="AWS/ApplicationELB · TargetResponseTime">
+          <Panel title="Response time" tag={server ? `LoadForge · Latency · ${short}` : 'AWS/ApplicationELB · TargetResponseTime'}>
             <LineChart
-              points={metrics.latencyMs}
+              points={view.latencyMs}
               color="var(--color-violet)"
-              label="Target response time"
+              label="Response time"
               format={(v) => `${fmtInt(v)} ms`}
             />
           </Panel>
-          <Panel title="5xx errors" tag="AWS/ApplicationELB · HTTPCode_Target_5XX">
+          <Panel title="5xx errors" tag={server ? `LoadForge · Http5xxCount · ${short}` : 'AWS/ApplicationELB · HTTPCode_Target_5XX'}>
             <LineChart
-              points={metrics.errors5xx}
+              points={view.errors5xx}
               color="var(--color-crit)"
-              label="Target 5xx errors per minute"
+              label="5xx errors per minute"
               format={(v) => `${fmtInt(v)} /min`}
             />
           </Panel>
@@ -163,7 +183,7 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <Panel title="Instances" tag="autoscaling:DescribeAutoScalingGroups" className="xl:col-span-7">
-          <InstanceTable instances={snapshot.instances} now={now} />
+          <InstanceTable instances={snapshot.instances} now={now} selected={server} onSelect={setSelected} />
         </Panel>
         <Panel title="Load test" tag="GET /api/load/*" className="xl:col-span-5">
           <LoadRoutes />
