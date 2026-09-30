@@ -43,8 +43,9 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
   if (!snapshot || now === null) return <BootScreen />;
 
   const { asg, metrics, targetCpu } = snapshot;
-  // A selected server that has been terminated falls back to the average.
-  const server = selected && metrics.byInstance[selected] ? selected : null;
+  // A selected server that leaves service (terminating, gone) falls back to the average.
+  const inService = (id: string) => snapshot.instances.some((i) => i.id === id && i.lifecycle === 'InService');
+  const server = selected && inService(selected) && metrics.byInstance[selected] ? selected : null;
   const view = server ? metrics.byInstance[server] : metrics;
   const short = server ? `${server.slice(0, 10)}…` : '';
 

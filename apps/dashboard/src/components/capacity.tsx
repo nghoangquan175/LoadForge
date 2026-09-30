@@ -79,7 +79,8 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
             const isSelected = !!instance && instance.id === selected;
             return (
               <div key={instance?.id ?? `empty-${i}`} className="relative flex-1">
-                {instance ? (
+                {/* Only in-service servers are clickable; pending / terminating are not. */}
+                {instance && state === 'inService' ? (
                   <button
                     type="button"
                     onClick={() => onSelect(isSelected ? null : instance.id)}
@@ -91,7 +92,10 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
                     }`}
                   />
                 ) : (
-                  <div className={`h-9 rounded-[3px] ${SLOT_STYLE.empty}`} />
+                  <div
+                    title={instance ? `${instance.id} · ${instance.lifecycle}` : undefined}
+                    className={`h-9 rounded-[3px] transition-all duration-500 ${SLOT_STYLE[state]}`}
+                  />
                 )}
                 <div className={`mt-1 text-center text-[10px] tabular-nums ${isSelected ? 'text-cyan' : 'text-muted'}`}>
                   {isSelected ? '▲' : i + 1}
@@ -111,7 +115,7 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
           <li className="flex items-center gap-1.5"><span className="size-2.5 rounded-[2px] bg-accent" />in service {asg.inService}</li>
           <li className="flex items-center gap-1.5"><span className="stripes size-2.5 rounded-[2px] border border-cyan/70" />pending {asg.pending}</li>
           <li className="flex items-center gap-1.5"><span className="size-2.5 rounded-[2px] border border-crit bg-crit/20" />terminating {asg.terminating}</li>
-          <li className="text-muted">click a box for its report</li>
+          <li className="text-muted">click a green box for its report</li>
         </ul>
       </div>
 

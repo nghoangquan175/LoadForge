@@ -55,27 +55,37 @@ export function InstanceTable({ instances, now, selected, onSelect }: InstanceTa
           {rows.map((inst) => {
             const lc = LIFECYCLE[inst.lifecycle];
             const isSelected = inst.id === selected;
-            const toggle = () => onSelect(isSelected ? null : inst.id);
+            // Only in-service servers have a report worth showing.
+            const selectable = inst.lifecycle === 'InService';
+            const toggle = () => selectable && onSelect(isSelected ? null : inst.id);
             return (
               <tr
                 key={inst.id}
                 onClick={toggle}
                 aria-selected={isSelected}
-                className={`animate-slide-in cursor-pointer border-t border-line/70 ${
-                  isSelected ? 'bg-cyan/[0.07] shadow-[inset_2px_0_0_var(--color-cyan)]' : 'hover:bg-accent/[0.03]'
+                className={`animate-slide-in border-t border-line/70 ${
+                  isSelected
+                    ? 'bg-cyan/[0.07] shadow-[inset_2px_0_0_var(--color-cyan)]'
+                    : selectable
+                      ? 'cursor-pointer hover:bg-accent/[0.03]'
+                      : ''
                 }`}
               >
                 <td className="py-2 pr-3 pl-2">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggle();
-                    }}
-                    className={`text-left outline-none focus-visible:underline ${isSelected ? 'text-cyan' : 'text-ink'}`}
-                  >
-                    {inst.id}
-                  </button>
+                  {selectable ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle();
+                      }}
+                      className={`text-left outline-none focus-visible:underline ${isSelected ? 'text-cyan' : 'text-ink'}`}
+                    >
+                      {inst.id}
+                    </button>
+                  ) : (
+                    <div className="text-ink-2">{inst.id}</div>
+                  )}
                   <div className="text-[10px] text-muted">
                     {inst.type} · {inst.privateIp ?? '—'}
                   </div>
