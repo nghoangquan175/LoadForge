@@ -58,7 +58,8 @@ export function LineChart({ points, color, label, format, yMax, threshold, heigh
   const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
   const area = `${line}L${x(t1).toFixed(1)},${y(0)}L${x(t0).toFixed(1)},${y(0)}Z`;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
-  const xTickIdx = [0, Math.round((points.length - 1) / 3), Math.round(((points.length - 1) * 2) / 3), points.length - 1];
+  // Deduped: a new server with only a few points would repeat labels.
+  const xTickIdx = [...new Set([0, Math.round((points.length - 1) / 3), Math.round(((points.length - 1) * 2) / 3), points.length - 1])];
 
   // Minute data over an hour reads best as HH:MM; short mock windows need seconds.
   const axisTime = t1 - t0 >= 10 * 60_000 ? fmtHourMinute : fmtTime;
@@ -97,12 +98,12 @@ export function LineChart({ points, color, label, format, yMax, threshold, heigh
               </text>
             </g>
           ))}
-          {xTickIdx.map((idx, i) => (
+          {xTickIdx.map((idx) => (
             <text
-              key={i}
+              key={idx}
               x={x(points[idx].t)}
               y={height - 6}
-              textAnchor={i === 0 ? 'start' : i === xTickIdx.length - 1 ? 'end' : 'middle'}
+              textAnchor={idx === 0 ? 'start' : idx === points.length - 1 ? 'end' : 'middle'}
               className="fill-muted text-[10px] tabular-nums"
             >
               {axisTime(points[idx].t)}
