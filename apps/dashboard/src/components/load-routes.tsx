@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { fmtDuration, fmtInt } from '@/lib/format';
-import { LOAD_ROUTES } from '@/lib/load-routes';
+import { LOAD_ROUTE } from '@/lib/load-routes';
 import { MAX_RATE, MAX_TOTAL, type RunStatus, useLoadRunner } from '@/lib/use-load-runner';
 import { API_URL, apiOrigin } from '@/lib/use-live-snapshot';
 
@@ -67,15 +67,14 @@ function validate(v: Record<Field, string>): string | null {
 }
 
 export function LoadRoutes() {
-  const [active, setActive] = useState(LOAD_ROUTES[0].key);
   const [values, setValues] = useState<Record<Field, string>>({ total: '4800', minutes: '5', rate: '16' });
   // Fields the user typed, oldest first; the third one is computed.
   const [typed, setTyped] = useState<Field[]>(['minutes', 'rate']);
   const { stats, start, stop, resume, remove } = useLoadRunner();
-  // Plan and route are fixed once a test exists; delete it to change them.
+  // The plan is fixed once a test exists; delete it to change it.
   const locked = stats.status !== 'idle';
 
-  const route = LOAD_ROUTES.find((r) => r.key === active)!;
+  const route = LOAD_ROUTE;
   const url = `${API_URL}${route.path}?${route.query}`;
   const derived = FIELDS.find((f) => !typed.slice(-2).includes(f));
   const error = validate(values);
@@ -99,26 +98,6 @@ export function LoadRoutes() {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <div role="tablist" className="grid grid-cols-3 gap-1.5">
-        {LOAD_ROUTES.map((r) => (
-          <button
-            key={r.key}
-            role="tab"
-            aria-selected={r.key === active}
-            disabled={locked}
-            onClick={() => setActive(r.key)}
-            className={`border px-2 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-              r.key === active
-                ? 'border-accent/70 bg-accent/10 text-ink'
-                : 'border-line text-ink-2 hover:border-accent/40 hover:text-ink'
-            }`}
-          >
-            <div className="text-[10px] tracking-widest text-muted">{r.bound}</div>
-            <div className="truncate text-xs font-semibold">{r.name}</div>
-          </button>
-        ))}
-      </div>
-
       <div className="space-y-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-[2px] bg-cyan/15 px-1.5 py-0.5 text-[10px] font-bold text-cyan">GET</span>

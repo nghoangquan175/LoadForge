@@ -25,7 +25,7 @@ async function timed<T extends object>(route: string, input: Record<string, numb
   };
 }
 
-/** Targets for k6. Each one stresses a different resource. */
+/** Target for load tests (dashboard load panel, k6): pure CPU work. */
 @Controller('load')
 export class LoadController {
   constructor(private readonly load: LoadService) {}
@@ -34,17 +34,5 @@ export class LoadController {
   cpu(@Query('limit') limitRaw?: string) {
     const limit = boundedInt(limitRaw, 'limit', 300_000, 1, 5_000_000);
     return timed('cpu', { limit }, () => ({ primes: this.load.countPrimes(limit) }));
-  }
-
-  @Get('memory')
-  memory(@Query('size') sizeRaw?: string) {
-    const size = boundedInt(sizeRaw, 'size', 500_000, 1, 5_000_000);
-    return timed('memory', { size }, () => this.load.crunchArray(size));
-  }
-
-  @Get('io')
-  io(@Query('delay') delayRaw?: string) {
-    const delay = boundedInt(delayRaw, 'delay', 300, 0, 10_000);
-    return timed('io', { delay }, () => this.load.slowDownstream(delay));
   }
 }

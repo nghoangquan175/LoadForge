@@ -43,18 +43,12 @@ describe('LoadForge API (e2e)', () => {
     expect(res.body).toMatchObject({ route: 'cpu', input: { limit: 1000 }, result: { primes: 168 } });
   });
 
-  it('GET /api/load/memory', async () => {
-    const res = await request(app.getHttpServer()).get('/api/load/memory?size=1000').expect(200);
-    expect(res.body.result.sha256).toHaveLength(16);
-  });
-
-  it('GET /api/load/io', async () => {
-    const res = await request(app.getHttpServer()).get('/api/load/io?delay=20').expect(200);
-    expect(res.body.result).toEqual({ waitedMs: 20 });
-  });
-
-  it.each(['cpu?limit=abc', 'cpu?limit=99999999', 'memory?size=-1', 'io?delay=1.5'])('rejects bad input /api/load/%s', async (q) => {
+  it.each(['cpu?limit=abc', 'cpu?limit=99999999', 'cpu?limit=0', 'cpu?limit=1.5'])('rejects bad input /api/load/%s', async (q) => {
     await request(app.getHttpServer()).get(`/api/load/${q}`).expect(400);
+  });
+
+  it.each(['memory', 'io'])('no longer serves /api/load/%s', async (route) => {
+    await request(app.getHttpServer()).get(`/api/load/${route}`).expect(404);
   });
 
   it('GET /api/stream sends a snapshot event', async () => {

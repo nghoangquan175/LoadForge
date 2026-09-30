@@ -37,8 +37,6 @@ If the server is down, the dashboard runs its own local simulation.
 | `GET /api/activities` | Scaling activity history |
 | `GET /api/health` | Health check for the load balancer |
 | `GET /api/load/cpu?limit=300000` | Counts primes (CPU bound) |
-| `GET /api/load/memory?size=500000` | Allocates, sorts and hashes an array (memory bound) |
-| `GET /api/load/io?delay=300` | Waits on a fake downstream call (latency bound) |
 
 Every response has an `X-Served-By` header, so you can see which instance answered.
 

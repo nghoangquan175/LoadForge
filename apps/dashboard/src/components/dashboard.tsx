@@ -188,7 +188,7 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
         <Panel title="Instances" tag="autoscaling:DescribeAutoScalingGroups" className="xl:col-span-7">
           <InstanceTable instances={snapshot.instances} now={now} selected={server} canPick={canPick} onSelect={setSelected} />
         </Panel>
-        <Panel title="Load test" tag="GET /api/load/*" className="xl:col-span-5">
+        <Panel title="Load test" tag="GET /api/load/cpu" className="xl:col-span-5">
           <LoadRoutes />
         </Panel>
       </div>

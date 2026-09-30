@@ -1,11 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
-import { setTimeout as sleep } from 'node:timers/promises';
 
 /**
- * Deliberately expensive work for load testing. The CPU and memory routes run
- * synchronously and block the event loop on purpose: that is what makes a
- * single instance saturate and forces the ASG to scale out.
+ * Deliberately expensive work for load testing. It runs synchronously and
+ * blocks the event loop on purpose: that is what makes a single instance
+ * saturate and forces the ASG to scale out.
  */
 @Injectable()
 export class LoadService {
@@ -24,25 +22,5 @@ export class LoadService {
       if (prime) count++;
     }
     return count;
-  }
-
-  /** Allocates `size` random numbers, sorts them and hashes the result. */
-  crunchArray(size: number) {
-    const values = Array.from({ length: size }, () => Math.random());
-    values.sort((a, b) => a - b);
-    const sha256 = createHash('sha256').update(Buffer.from(Float64Array.from(values).buffer)).digest('hex');
-    return {
-      min: values[0] ?? null,
-      median: values[Math.floor(size / 2)] ?? null,
-      max: values[size - 1] ?? null,
-      sha256: sha256.slice(0, 16),
-      heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-    };
-  }
-
-  /** Stands in for a slow database or third-party API call. */
-  async slowDownstream(delayMs: number) {
-    await sleep(delayMs);
-    return { waitedMs: delayMs };
   }
 }
