@@ -63,13 +63,18 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
           disabled={averageDisabled}
           aria-pressed={onAverage}
           title={averageDisabled ? 'Only one server is running: its report is the average' : 'Report for all servers together'}
-          className={`mb-1 border px-3 py-1.5 text-xs font-semibold tracking-wider transition-colors disabled:cursor-not-allowed disabled:border-line disabled:bg-transparent disabled:text-muted ${
+          className={`mb-1 flex min-w-[8.5rem] cursor-pointer flex-col items-start border-2 px-4 py-2.5 text-left transition-all ${
             onAverage
-              ? 'border-accent/70 bg-accent/10 text-accent'
-              : 'border-line text-ink-2 hover:border-accent/50 hover:text-ink'
-          }`}
+              ? 'border-accent bg-accent/15 text-accent shadow-[0_0_18px_rgb(34_229_132/0.35)]'
+              : 'border-accent/40 text-ink-2 hover:border-accent hover:bg-accent/10 hover:text-accent'
+          } disabled:cursor-not-allowed ${averageDisabled && !onAverage ? 'opacity-50' : ''}`}
         >
-          <span aria-hidden>◎ </span>average
+          <span className="text-sm font-bold tracking-[0.2em] uppercase">
+            <span aria-hidden>◎ </span>average
+          </span>
+          <span className={`text-[10px] tracking-wider uppercase ${onAverage ? 'text-accent/80' : 'text-muted'}`}>
+            all {asg.inService} server{asg.inService === 1 ? '' : 's'}
+          </span>
         </button>
       </div>
 
