@@ -17,7 +17,18 @@ const LABELS: Record<Field, string> = {
 
 const MAX_MINUTES = 60;
 
-const BTN = 'cursor-pointer border px-3 py-1.5 text-xs font-semibold transition-colors';
+const BTN = 'inline-flex cursor-pointer items-center gap-2 border px-3 py-1.5 text-xs font-semibold transition-colors';
+
+/** SVG glyphs: text symbols sit off-center in a monospace font. */
+function Icon({ name }: { name: 'play' | 'stop' | 'delete' }) {
+  return (
+    <svg viewBox="0 0 10 10" className="size-2.5 shrink-0" aria-hidden>
+      {name === 'play' && <path d="M2 1 L9 5 L2 9 Z" fill="currentColor" />}
+      {name === 'stop' && <rect x="1.5" y="1.5" width="7" height="7" fill="currentColor" />}
+      {name === 'delete' && <path d="M2 2 L8 8 M8 2 L2 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" />}
+    </svg>
+  );
+}
 
 const STATUS_STYLE: Record<RunStatus, string> = {
   idle: 'text-muted',
@@ -158,22 +169,22 @@ export function LoadRoutes() {
               disabled={!!error}
               className={`${BTN} border-accent/70 bg-accent/10 text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              ▶ start load
+              <Icon name="play" />start load
             </button>
           )}
           {stats.status === 'running' && (
             <button onClick={stop} className={`${BTN} border-warn/70 bg-warn/10 text-warn hover:bg-warn/20`}>
-              ‖ stop
+              <Icon name="stop" />stop
             </button>
           )}
           {stats.status === 'paused' && (
             <button onClick={resume} className={`${BTN} border-accent/70 bg-accent/10 text-accent hover:bg-accent/20`}>
-              ▶ continue
+              <Icon name="play" />continue
             </button>
           )}
           {locked && (
             <button onClick={remove} className={`${BTN} border-crit/60 text-crit hover:bg-crit/10`}>
-              ✕ delete test
+              <Icon name="delete" />delete test
             </button>
           )}
           <span className="text-[10px] text-muted">sent from this browser to {apiOrigin()}</span>
