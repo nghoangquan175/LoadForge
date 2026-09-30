@@ -35,6 +35,8 @@ locals {
     # One Node worker per vCPU, so a server can really reach 100% CPU
     # and the 60% target can trigger scale-out.
     WEB_CONCURRENCY = "auto"
+    # Health check served by the Node primary, see alb.tf.
+    HEALTH_PORT = tostring(local.health_port)
   }
 }
 

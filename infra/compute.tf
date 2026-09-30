@@ -3,11 +3,15 @@ locals {
   # before the group exists.
   asg_name = "${var.project}-asg"
 
+  # Answered by the Node primary of each API server (apps/server/src/main.ts).
+  health_port = 4001
+
   # Inputs every user-data.sh.tftpl render needs; each app adds its own.
   user_data_vars = {
     region           = var.region
     ghcr_user        = var.ghcr_user
     ghcr_token_param = var.ghcr_token_param
+    health_port      = ""
   }
 }
 
@@ -53,6 +57,7 @@ resource "aws_launch_template" "app" {
   user_data = base64encode(templatefile("${path.module}/user-data.sh.tftpl", merge(local.user_data_vars, {
     app         = "server"
     port        = 4000
+    health_port = local.health_port
     image_param = aws_ssm_parameter.image["server"].name
     env_path    = "/${var.project}/server/"
   })))

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Sends requests from this browser at a steady rate, like k6's
-// constant-arrival-rate executor. Browsers cap open connections, so very high
-// rates hit MAX_IN_FLIGHT and the achieved rate falls behind the target.
+// constant-arrival-rate executor. It never sends faster than the rate to make
+// up for lost time: a request that could not go out on schedule (too many
+// still open, or the tab was asleep) is dropped, not sent later in a burst.
 //
 // idle --start--> running --stop--> paused --continue--> running --...--> finished
 //   ^------------------------- delete (from any state) ----------------------'
@@ -36,6 +37,8 @@ export interface RunStats {
   total: number;
   rate: number;
   sent: number;
+  /** scheduled but skipped: sending them late would burst above the rate */
+  dropped: number;
   ok: number;
   failed: number;
   inFlight: number;
@@ -50,6 +53,7 @@ const IDLE: RunStats = {
   total: 0,
   rate: 0,
   sent: 0,
+  dropped: 0,
   ok: 0,
   failed: 0,
   inFlight: 0,
@@ -98,6 +102,7 @@ export function useLoadRunner() {
       total: s.total,
       rate: s.rate,
       sent: s.sent,
+      dropped: s.dropped,
       ok: s.ok,
       failed: s.failed,
       inFlight: s.inFlight,
@@ -179,8 +184,15 @@ export function useLoadRunner() {
     timers.current.tick = setInterval(() => {
       // Requests that should have gone out by now, counting running time only.
       const due = Math.min(s.total, Math.floor((activeMs(s) / 1000) * s.rate) + 1);
-      while (s.sent < due && s.inFlight < MAX_IN_FLIGHT) fire();
-      if (s.sent >= s.total && s.inFlight === 0) {
+      // More than a second behind (tab asleep): skip the backlog.
+      const behind = due - (s.sent + s.dropped);
+      const lateLimit = Math.ceil(s.rate);
+      if (behind > lateLimit) s.dropped += behind - lateLimit;
+      while (s.sent + s.dropped < due) {
+        if (s.inFlight < MAX_IN_FLIGHT) fire();
+        else s.dropped++;
+      }
+      if (s.sent + s.dropped >= s.total && s.inFlight === 0) {
         halt('finished');
         publish();
       }

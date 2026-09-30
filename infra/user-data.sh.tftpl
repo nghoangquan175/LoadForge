@@ -44,6 +44,9 @@ echo "env: $(cut -d= -f1 /etc/loadforge/app.env | tr '\n' ' ')"
 docker rm -f loadforge 2>/dev/null || true
 docker run -d --name loadforge --restart unless-stopped \
   -p ${port}:${port} \
+%{ if health_port != "" ~}
+  -p ${health_port}:${health_port} \
+%{ endif ~}
   --env-file /etc/loadforge/app.env \
   "$IMAGE"
 docker image prune -f >/dev/null

@@ -58,3 +58,22 @@ resource "aws_vpc_security_group_egress_rule" "app_all" {
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }
+
+# Health checks go to the Node primary on its own port (see alb.tf).
+resource "aws_vpc_security_group_ingress_rule" "app_health_from_alb" {
+  security_group_id            = aws_security_group.app.id
+  description                  = "Health check from the ALB"
+  referenced_security_group_id = aws_security_group.alb.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.health_port
+  to_port                      = local.health_port
+}
+
+resource "aws_vpc_security_group_egress_rule" "alb_to_app_health" {
+  security_group_id            = aws_security_group.alb.id
+  description                  = "Health check to app instances"
+  referenced_security_group_id = aws_security_group.app.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.health_port
+  to_port                      = local.health_port
+}

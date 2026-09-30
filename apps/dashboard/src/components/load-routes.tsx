@@ -95,7 +95,7 @@ export function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boole
 
   const elapsed = stats.elapsedMs;
   const achieved = elapsed > 0 ? stats.sent / (elapsed / 1000) : 0;
-  const progress = stats.total ? Math.min(100, (stats.sent / stats.total) * 100) : 0;
+  const progress = stats.total ? Math.min(100, ((stats.sent + stats.dropped) / stats.total) * 100) : 0;
   const done = stats.ok + stats.failed;
 
   return (
@@ -173,11 +173,12 @@ export function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boole
           <div className="h-1.5 overflow-hidden rounded-full bg-accent/15">
             <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${progress}%` }} />
           </div>
-          <dl className="grid grid-cols-3 gap-x-4 gap-y-1 sm:grid-cols-5">
+          <dl className="grid grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-6">
             {[
               ['ok', fmtInt(stats.ok), 'text-accent'],
               ['failed', fmtInt(stats.failed), stats.failed ? 'text-crit' : 'text-ink'],
               ['in flight', fmtInt(stats.inFlight), 'text-ink'],
+              ['dropped', fmtInt(stats.dropped), stats.dropped ? 'text-warn' : 'text-ink'],
               ['avg latency', done ? `${fmtInt(stats.avgMs)} ms` : '—', 'text-ink'],
               [
                 'rate',

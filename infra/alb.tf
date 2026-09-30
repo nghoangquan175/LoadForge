@@ -33,10 +33,12 @@ resource "aws_lb_target_group" "app" {
   # Short drain so scale-in is quick to watch.
   deregistration_delay = 30
 
-  # Generous timeout: CPU-heavy requests block the Node event loop,
-  # so health checks queue behind them under load.
+  # Checked on the Node primary's own port (HEALTH_PORT), not the API:
+  # the workers queue requests behind CPU-heavy ones, so a check sent there
+  # times out when the server is only busy and the ASG would replace it.
   health_check {
-    path                = "/api/health"
+    port                = tostring(local.health_port)
+    path                = "/"
     matcher             = "200"
     interval            = 15
     timeout             = 10
