@@ -22,6 +22,8 @@ interface CapacityProps {
   instances: Ec2Instance[];
   /** instance id whose report is shown, null = average of all */
   selected: string | null;
+  /** false with one server in service: nothing to pick */
+  canPick: boolean;
   onSelect: (id: string | null) => void;
 }
 
@@ -30,7 +32,7 @@ interface CapacityProps {
  * Each box is a server: click it for that server's report, click "average"
  * (or the same box again) to go back to the whole group.
  */
-export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) {
+export function Capacity({ asg, instances, selected, canPick, onSelect }: CapacityProps) {
   const slots: { state: SlotState; instance?: Ec2Instance }[] = instances
     .filter((i) => SLOT_OF[i.lifecycle])
     .sort(
@@ -42,7 +44,7 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
   while (slots.length < asg.max) slots.push({ state: 'empty' });
 
   const onAverage = selected === null;
-  const averageDisabled = asg.inService <= 1;
+  const averageDisabled = !canPick;
 
   return (
     <div className="flex h-full flex-col justify-between gap-5">
@@ -85,7 +87,7 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
             return (
               <div key={instance?.id ?? `empty-${i}`} className="relative flex-1">
                 {/* Only in-service servers are clickable; pending / terminating are not. */}
-                {instance && state === 'inService' ? (
+                {instance && state === 'inService' && canPick ? (
                   <button
                     type="button"
                     onClick={() => onSelect(isSelected ? null : instance.id)}
@@ -120,7 +122,7 @@ export function Capacity({ asg, instances, selected, onSelect }: CapacityProps) 
           <li className="flex items-center gap-1.5"><span className="size-2.5 rounded-[2px] bg-accent" />in service {asg.inService}</li>
           <li className="flex items-center gap-1.5"><span className="stripes size-2.5 rounded-[2px] border border-cyan/70" />pending {asg.pending}</li>
           <li className="flex items-center gap-1.5"><span className="size-2.5 rounded-[2px] border border-crit bg-crit/20" />terminating {asg.terminating}</li>
-          <li className="text-muted">click a green box for its report</li>
+          <li className="text-muted">{canPick ? 'click a green box for its report' : 'one server: its report is the average'}</li>
         </ul>
       </div>
 

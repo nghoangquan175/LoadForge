@@ -45,7 +45,9 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
   const { asg, metrics, targetCpu } = snapshot;
   // A selected server that leaves service (terminating, gone) falls back to the average.
   const inService = (id: string) => snapshot.instances.some((i) => i.id === id && i.lifecycle === 'InService');
-  const server = selected && inService(selected) && metrics.byInstance[selected] ? selected : null;
+  // With one server its report is the average, so there is nothing to pick.
+  const canPick = asg.inService > 1;
+  const server = canPick && selected && inService(selected) && metrics.byInstance[selected] ? selected : null;
   const view = server ? metrics.byInstance[server] : metrics;
   const short = server ? `${server.slice(0, 10)}…` : '';
 
@@ -81,7 +83,7 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <Panel title="Capacity" tag={`asg:${asg.name}`} className="lg:col-span-4">
-          <Capacity asg={asg} instances={snapshot.instances} selected={server} onSelect={setSelected} />
+          <Capacity asg={asg} instances={snapshot.instances} selected={server} canPick={canPick} onSelect={setSelected} />
         </Panel>
 
         <div className="grid grid-cols-2 gap-4 lg:col-span-8">
@@ -184,7 +186,7 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <Panel title="Instances" tag="autoscaling:DescribeAutoScalingGroups" className="xl:col-span-7">
-          <InstanceTable instances={snapshot.instances} now={now} selected={server} onSelect={setSelected} />
+          <InstanceTable instances={snapshot.instances} now={now} selected={server} canPick={canPick} onSelect={setSelected} />
         </Panel>
         <Panel title="Load test" tag="GET /api/load/*" className="xl:col-span-5">
           <LoadRoutes />

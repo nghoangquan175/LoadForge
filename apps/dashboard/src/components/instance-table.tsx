@@ -27,11 +27,13 @@ interface InstanceTableProps {
   instances: Ec2Instance[];
   now: number;
   selected: string | null;
+  /** false with one server in service: nothing to pick */
+  canPick: boolean;
   /** click a row to see that server's report, click again for the average */
   onSelect: (id: string | null) => void;
 }
 
-export function InstanceTable({ instances, now, selected, onSelect }: InstanceTableProps) {
+export function InstanceTable({ instances, now, selected, canPick, onSelect }: InstanceTableProps) {
   const rows = [...instances].sort((a, b) => a.launchedAt - b.launchedAt);
 
   if (!rows.length) {
@@ -56,7 +58,7 @@ export function InstanceTable({ instances, now, selected, onSelect }: InstanceTa
             const lc = LIFECYCLE[inst.lifecycle];
             const isSelected = inst.id === selected;
             // Only in-service servers have a report worth showing.
-            const selectable = inst.lifecycle === 'InService';
+            const selectable = canPick && inst.lifecycle === 'InService';
             const toggle = () => selectable && onSelect(isSelected ? null : inst.id);
             return (
               <tr
