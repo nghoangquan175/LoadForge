@@ -14,5 +14,6 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!login|auth/|_next/static|_next/image|favicon.ico).*)'],
+  // Icons must load on the login page too.
+  matcher: ['/((?!login|auth/|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)'],
 };
