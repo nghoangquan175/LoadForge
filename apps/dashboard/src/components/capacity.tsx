@@ -67,7 +67,7 @@ export function Capacity({ asg, instances, selected, canPick, onSelect }: Capaci
           title={averageDisabled ? 'Only one server is running: its report is the average' : 'Report for all servers together'}
           className={`mb-1 flex min-w-[8.5rem] cursor-pointer flex-col items-start border-2 px-4 py-2.5 text-left transition-all ${
             onAverage
-              ? 'border-accent bg-accent/15 text-accent shadow-[0_0_18px_rgb(34_229_132/0.35)]'
+              ? 'border-accent bg-accent/15 text-accent'
               : 'border-accent/40 text-ink-2 hover:border-accent hover:bg-accent/10 hover:text-accent'
           } disabled:cursor-not-allowed ${averageDisabled && !onAverage ? 'opacity-50' : ''}`}
         >
