@@ -30,9 +30,13 @@ variable "project" {
 }
 
 variable "github_repo" {
-  description = "owner/name allowed to assume the deploy role."
+  description = <<-EOT
+    Repo allowed to assume the deploy role, as it appears in the OIDC sub claim.
+    This repo uses GitHub's immutable subject (owner@id/name@id), see
+    gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+  EOT
   type        = string
-  default     = "nghoangquan175/LoadForge"
+  default     = "nghoangquan175@111145927/LoadForge@1392228306"
 }
 
 provider "aws" {
