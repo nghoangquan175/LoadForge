@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { fmtCompact, fmtDateTime, fmtInt, fmtTime, last, TZ_LABEL } from '@/lib/format';
-import { API_URL, apiOrigin, useLiveSnapshot, useNow } from '@/lib/use-live-snapshot';
+import { useLiveSnapshot, useNow, WATCHER_URL, watcherOrigin } from '@/lib/use-live-snapshot';
 import { ActivityLog } from './activity-log';
 import { Capacity } from './capacity';
 import { InstanceTable } from './instance-table';
@@ -14,7 +14,7 @@ import { TopBar } from './top-bar';
 
 const BOOT_LINES = [
   'initializing loadforge control plane…',
-  `opening event stream ${API_URL}/api/stream`,
+  `opening event stream ${WATCHER_URL}/monitor/stream`,
   'resolving auto scaling group…',
 ];
 
@@ -76,9 +76,9 @@ export function Dashboard({ canLogout }: { canLogout: boolean }) {
       {link === 'fallback' && (
         <div className="border border-warn/40 bg-warn/5 px-4 py-2 text-xs text-warn">
           <span aria-hidden>▲ </span>
-          server unreachable at {apiOrigin()} — showing a local simulation.
-          {API_URL.includes('localhost') && (
-            <> Start it with <code className="text-ink">npm run dev:server</code>.</>
+          watcher unreachable at {watcherOrigin()} — showing a local simulation.
+          {WATCHER_URL.includes('localhost') && (
+            <> Start it with <code className="text-ink">npm run dev:watcher</code>.</>
           )}
         </div>
       )}

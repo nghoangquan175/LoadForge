@@ -9,11 +9,17 @@ export type LinkState = 'connecting' | 'live' | 'fallback';
 /** Give the server this long to send its first event before simulating. */
 const CONNECT_GRACE_MS = 2500;
 
-/** Empty string means same origin: the ALB routes /api/* to the API servers. */
+/** Defenders (load test target). Empty string means same origin: the ALB routes /api/* to them. */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+/** Watcher (dashboard data). Empty string means same origin: the ALB routes /monitor/* to it. */
+export const WATCHER_URL = process.env.NEXT_PUBLIC_WATCHER_URL ?? 'http://localhost:4100';
 
 /** Absolute API base for display (k6 commands, error messages). Client only. */
 export const apiOrigin = () => API_URL || window.location.origin;
+
+/** Absolute Watcher base for display. Client only. */
+export const watcherOrigin = () => WATCHER_URL || window.location.origin;
 
 /**
  * Streams dashboard snapshots from the server over SSE.
@@ -46,7 +52,7 @@ export function useLiveSnapshot() {
     const graceTimer = setTimeout(startFallback, CONNECT_GRACE_MS);
 
     // EventSource reconnects on its own; we switch back to live on the next event.
-    const source = new EventSource(`${API_URL}/api/stream`);
+    const source = new EventSource(`${WATCHER_URL}/monitor/stream`);
     source.addEventListener('snapshot', (e) => {
       clearTimeout(graceTimer);
       stopFallback();

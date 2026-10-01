@@ -1,7 +1,7 @@
 // Fake auto-scaling group used when the server is offline.
 // It follows the same rules a real target-tracking policy does, so the
 // dashboard shows believable scale-out / scale-in behavior.
-// Keep in sync with apps/server/src/aws/mock-simulator.ts.
+// Keep in sync with apps/watcher/src/aws/mock-simulator.ts.
 
 import type {
   ActivityKind,

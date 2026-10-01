@@ -1,5 +1,6 @@
 #!/bin/bash
-# Boots a LoadForge ${app} instance. Log: /var/log/loadforge-bootstrap.log
+# Boots a LoadForge ${role} instance: ${join(", ", [for c in containers : c.name])}.
+# Log: /var/log/loadforge-bootstrap.log
 # Rendered by Terraform: only $${...} and %%{...} are Terraform, plain $VAR is bash.
 set -euxo pipefail
 exec > >(tee -a /var/log/loadforge-bootstrap.log) 2>&1
@@ -8,49 +9,57 @@ dnf install -y docker
 systemctl enable --now docker
 
 # Deploy script: runs now, and again whenever CI ships a new image
-# (SSM Run Command on the dashboard; ASG instances are replaced instead).
+# (SSM Run Command on the dashboard instance; ASG instances are replaced instead).
 cat > /usr/local/bin/loadforge-deploy <<'DEPLOY'
 #!/bin/bash
-# Pull the image named in SSM and (re)start the container with env from SSM.
+# Pull each image named in SSM and (re)start its container with env from SSM.
 # No tracing: the GHCR token and app secrets must not reach the log.
 set -euo pipefail
 exec > >(tee -a /var/log/loadforge-deploy.log) 2>&1
-echo "== $(date -Is) deploying ${app}"
+echo "== $(date -Is) deploying"
 
 param() {
   aws ssm get-parameter --region ${region} --name "$1" --with-decryption --query Parameter.Value --output text
 }
 
-IMAGE=$(param ${image_param})
-echo "image: $IMAGE"
+instance_id() {
+  local token
+  token=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+  curl -fsS -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id
+}
 
-param ${ghcr_token_param} | docker login ghcr.io --username ${ghcr_user} --password-stdin
-docker pull "$IMAGE"
-docker logout ghcr.io
+# deploy NAME IMAGE_PARAM ENV_PATH WITH_INSTANCE_ID [docker run args...]
+deploy() {
+  local name=$1 image_param=$2 env_path=$3 with_id=$4
+  shift 4
+  local image env_file=/etc/loadforge/$name.env
+  image=$(param "$image_param")
+  echo "$name: $image"
+  docker pull "$image"
 
-# Env from SSM Parameter Store, root-only: ${env_path}KEY = value -> KEY=value
+  # Env from SSM Parameter Store, root-only: <env_path>KEY = value -> KEY=value
+  aws ssm get-parameters-by-path --region ${region} --path "$env_path" --with-decryption \
+    --query "Parameters[].[Name,Value]" --output text \
+    | awk -F'\t' '{ n = split($1, part, "/"); print part[n] "=" $2 }' > "$env_file"
+  # Instance id for the X-Served-By header and per-server metrics.
+  if [ "$with_id" = true ]; then echo "INSTANCE_ID=$(instance_id)" >> "$env_file"; fi
+  chmod 600 "$env_file"
+  echo "$name env: $(cut -d= -f1 "$env_file" | tr '\n' ' ')"
+
+  docker rm -f "$name" 2>/dev/null || true
+  docker run -d --name "$name" --restart unless-stopped --env-file "$env_file" "$@" "$image"
+}
+
 install -d -m 700 /etc/loadforge
-aws ssm get-parameters-by-path --region ${region} --path ${env_path} --with-decryption \
-  --query "Parameters[].[Name,Value]" --output text \
-  | awk -F'\t' '{ n = split($1, part, "/"); print part[n] "=" $2 }' > /etc/loadforge/app.env
-%{ if app == "server" ~}
-# Instance id for the X-Served-By header.
-IMDS_TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
-echo "INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id)" >> /etc/loadforge/app.env
-%{ endif ~}
-chmod 600 /etc/loadforge/app.env
-echo "env: $(cut -d= -f1 /etc/loadforge/app.env | tr '\n' ' ')"
+param ${ghcr_token_param} | docker login ghcr.io --username ${ghcr_user} --password-stdin
+trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
-docker rm -f loadforge 2>/dev/null || true
-docker run -d --name loadforge --restart unless-stopped \
-  -p ${port}:${port} \
-%{ if health_port != "" ~}
-  -p ${health_port}:${health_port} \
-%{ endif ~}
-  --env-file /etc/loadforge/app.env \
-  "$IMAGE"
+%{ for c in containers ~}
+deploy ${c.name} ${c.image_param} ${c.env_path} ${c.instance_id} ${join(" ", [for p in c.ports : "-p ${p}:${p}"])}
+%{ endfor ~}
+
 docker image prune -f >/dev/null
-echo "== deployed $IMAGE"
+echo "== deployed"
 DEPLOY
 chmod 700 /usr/local/bin/loadforge-deploy
 

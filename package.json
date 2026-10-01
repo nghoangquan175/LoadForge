@@ -2,15 +2,16 @@
   "name": "loadforge",
   "version": "0.1.0",
   "private": true,
-  "description": "Auto-scaling playground: Next.js dashboard + NestJS load server on AWS EC2",
+  "description": "Auto-scaling playground: Next.js dashboard, NestJS Watcher and Defender on AWS EC2",
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n server,dashboard -c magenta,green \"npm run start:dev -w @loadforge/server\" \"npm run dev -w @loadforge/dashboard\"",
-    "dev:server": "npm run start:dev -w @loadforge/server",
+    "dev": "concurrently -n defender,watcher,dashboard -c magenta,cyan,green \"npm run start:dev -w @loadforge/defender\" \"npm run start:dev -w @loadforge/watcher\" \"npm run dev -w @loadforge/dashboard\"",
+    "dev:defender": "npm run start:dev -w @loadforge/defender",
+    "dev:watcher": "npm run start:dev -w @loadforge/watcher",
     "dev:dashboard": "npm run dev -w @loadforge/dashboard",
-    "build": "npm run build -w @loadforge/server && npm run build -w @loadforge/dashboard",
+    "build": "npm run build -w @loadforge/defender && npm run build -w @loadforge/watcher && npm run build -w @loadforge/dashboard",
     "lint": "npm run lint --workspaces"
   },
   "devDependencies": {

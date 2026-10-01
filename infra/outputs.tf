@@ -1,5 +1,5 @@
 output "app_url" {
-  description = "Dashboard URL once the CNAME is in place. The API is under /api."
+  description = "Dashboard URL once the CNAME is in place. Defenders under /api, Watcher under /monitor."
   value       = "https://${var.domain_name}"
 }
 
@@ -22,13 +22,13 @@ output "asg_name" {
 }
 
 output "alb_arn_suffix" {
-  description = "ALB_ARN_SUFFIX for a local server reading this stack."
+  description = "ALB_ARN_SUFFIX for a local Watcher reading this stack."
   value       = aws_lb.main.arn_suffix
 }
 
 output "dashboard_env" {
   description = "To point a local dashboard at this stack: apps/dashboard/.env.local"
-  value       = "NEXT_PUBLIC_API_URL=https://${var.domain_name}"
+  value       = "NEXT_PUBLIC_API_URL=https://${var.domain_name}\nNEXT_PUBLIC_WATCHER_URL=https://${var.domain_name}"
 }
 
 output "dashboard_user" {

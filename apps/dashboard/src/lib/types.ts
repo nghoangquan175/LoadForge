@@ -1,5 +1,5 @@
-// Wire contract between server and dashboard.
-// Keep in sync with apps/server/src/common/types.ts.
+// Wire contract between the Watcher and the dashboard.
+// Keep in sync with apps/watcher/src/common/types.ts.
 
 export type DataSource = 'aws' | 'mock';
 

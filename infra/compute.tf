@@ -3,15 +3,17 @@ locals {
   # before the group exists.
   asg_name = "${var.project}-asg"
 
-  # Answered by the Node primary of each API server (apps/server/src/main.ts).
+  # Answered by the Node primary of each Defender (apps/defender/src/main.ts).
   health_port = 4001
 
-  # Inputs every user-data.sh.tftpl render needs; each app adds its own.
+  # The Watcher on the dashboard instance (apps/watcher).
+  watcher_port = 4100
+
+  # Inputs every user-data.sh.tftpl render needs; each instance adds its containers.
   user_data_vars = {
     region           = var.region
     ghcr_user        = var.ghcr_user
     ghcr_token_param = var.ghcr_token_param
-    health_port      = ""
   }
 }
 
@@ -55,15 +57,18 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user-data.sh.tftpl", merge(local.user_data_vars, {
-    app         = "server"
-    port        = 4000
-    health_port = local.health_port
-    image_param = aws_ssm_parameter.image["server"].name
-    env_path    = "/${var.project}/server/"
+    role = "defender"
+    containers = [{
+      name        = "loadforge-defender"
+      image_param = aws_ssm_parameter.image["defender"].name
+      env_path    = "/${var.project}/defender/"
+      instance_id = true
+      ports       = [4000, local.health_port]
+    }]
   })))
 
   # Instances read their config at boot.
-  depends_on = [aws_ssm_parameter.server]
+  depends_on = [aws_ssm_parameter.defender]
 
   tag_specifications {
     resource_type = "instance"

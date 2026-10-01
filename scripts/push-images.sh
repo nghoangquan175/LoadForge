@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the server and dashboard images and push them to GHCR.
+# Build the defender, watcher and dashboard images and push them to GHCR.
 #
 # One-time login (write:packages scope):
 #   gh auth refresh -s write:packages
@@ -13,7 +13,7 @@ TAG="${1:-latest}"
 cd "$(dirname "$0")/.."
 SHA="$(git rev-parse --short HEAD)"
 
-for app in server dashboard; do
+for app in defender watcher dashboard; do
   image="ghcr.io/$OWNER/loadforge-$app"
   docker build --platform linux/amd64 -f "apps/$app/Dockerfile" -t "$image:$TAG" -t "$image:$SHA" .
   docker push "$image:$TAG"

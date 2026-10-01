@@ -8,13 +8,16 @@ WORKDIR /app
 RUN npm install -g npm@11
 # Every workspace manifest is needed for `npm ci` to accept the lockfile.
 COPY package.json package-lock.json ./
-COPY apps/server/package.json apps/server/
+COPY apps/defender/package.json apps/defender/
+COPY apps/watcher/package.json apps/watcher/
 COPY apps/dashboard/package.json apps/dashboard/
 RUN npm ci --workspace @loadforge/dashboard
 COPY apps/dashboard apps/dashboard
-# Empty = same origin: the ALB sends /api/* to the API servers.
+# Empty = same origin: the ALB sends /api/* to the Defenders, /monitor/* to the Watcher.
 ARG NEXT_PUBLIC_API_URL=""
+ARG NEXT_PUBLIC_WATCHER_URL=""
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_WATCHER_URL=$NEXT_PUBLIC_WATCHER_URL \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build --workspace @loadforge/dashboard
 

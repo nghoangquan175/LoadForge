@@ -27,10 +27,16 @@ variable "domain_name" {
   default     = "loadforge.quannh.xyz"
 }
 
-variable "server_image" {
-  description = "First API image. After that CI sets /loadforge/deploy/server-image."
+variable "defender_image" {
+  description = "First Defender (API) image. After that CI sets /loadforge/deploy/defender-image."
   type        = string
-  default     = "ghcr.io/nghoangquan175/loadforge-server:latest"
+  default     = "ghcr.io/nghoangquan175/loadforge-defender:latest"
+}
+
+variable "watcher_image" {
+  description = "First Watcher image. After that CI sets /loadforge/deploy/watcher-image."
+  type        = string
+  default     = "ghcr.io/nghoangquan175/loadforge-watcher:latest"
 }
 
 variable "dashboard_image" {
@@ -91,7 +97,7 @@ variable "dashboard_user" {
 }
 
 variable "dashboard_origins" {
-  description = "Origins allowed to call the API from a browser (CORS)."
+  description = "Origins allowed to call the Defenders and the Watcher from a browser (CORS)."
   type        = list(string)
   default     = ["http://localhost:3100"]
 }

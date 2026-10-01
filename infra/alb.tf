@@ -22,7 +22,7 @@ resource "aws_lb" "main" {
   idle_timeout = 120
 }
 
-# API servers (NestJS). The dashboard target group is in web.tf.
+# Defenders (NestJS API). The dashboard and Watcher target groups are in web.tf.
 resource "aws_lb_target_group" "app" {
   name        = "${var.project}-tg"
   port        = 4000
@@ -70,7 +70,7 @@ resource "aws_lb_listener" "https" {
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn   = local.certificate_arn
 
-  # Everything that is not /api/* goes to the dashboard.
+  # Everything that is not /api/* or /monitor/* goes to the dashboard.
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.web.arn
@@ -90,5 +90,21 @@ resource "aws_lb_listener_rule" "api" {
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+resource "aws_lb_listener_rule" "watcher" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 20
+
+  condition {
+    path_pattern {
+      values = ["/monitor/*"]
+    }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.watcher.arn
   }
 }

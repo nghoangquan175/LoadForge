@@ -1,6 +1,7 @@
 # App config lives in SSM Parameter Store, one parameter per env var:
-#   /loadforge/server/<KEY>     read by the API instances
-#   /loadforge/dashboard/<KEY>  read by the dashboard instance
+#   /loadforge/defender/<KEY>   read by the Defender (API) instances
+#   /loadforge/watcher/<KEY>    read by the Watcher on the dashboard instance
+#   /loadforge/dashboard/<KEY>  read by the dashboard on the dashboard instance
 # plus which image to run:
 #   /loadforge/deploy/<app>-image
 # Instances read them in /usr/local/bin/loadforge-deploy (user-data.sh.tftpl),
@@ -9,7 +10,8 @@
 # Terraform only seeds these; CI sets them to the image it just pushed.
 resource "aws_ssm_parameter" "image" {
   for_each = {
-    server    = var.server_image
+    defender  = var.defender_image
+    watcher   = var.watcher_image
     dashboard = var.dashboard_image
   }
 
@@ -23,13 +25,9 @@ resource "aws_ssm_parameter" "image" {
 }
 
 locals {
-  server_env = {
-    DATA_SOURCE    = "aws"
-    AWS_REGION     = var.region
-    ASG_NAME       = local.asg_name
-    ALB_ARN_SUFFIX = aws_lb.main.arn_suffix
-    TARGET_CPU     = tostring(var.target_cpu)
-    CORS_ORIGINS   = join(",", var.dashboard_origins)
+  defender_env = {
+    AWS_REGION   = var.region
+    CORS_ORIGINS = join(",", var.dashboard_origins)
     # Per-server request metrics for the dashboard's server view.
     PUBLISH_METRICS = "true"
     # One Node worker per vCPU, so a server can really reach 100% CPU
@@ -38,12 +36,29 @@ locals {
     # Health check served by the Node primary, see alb.tf.
     HEALTH_PORT = tostring(local.health_port)
   }
+
+  watcher_env = {
+    DATA_SOURCE    = "aws"
+    AWS_REGION     = var.region
+    ASG_NAME       = local.asg_name
+    ALB_ARN_SUFFIX = aws_lb.main.arn_suffix
+    TARGET_CPU     = tostring(var.target_cpu)
+    CORS_ORIGINS   = join(",", var.dashboard_origins)
+  }
 }
 
-resource "aws_ssm_parameter" "server" {
-  for_each = local.server_env
+resource "aws_ssm_parameter" "defender" {
+  for_each = local.defender_env
 
-  name  = "/${var.project}/server/${each.key}"
+  name  = "/${var.project}/defender/${each.key}"
+  type  = "String"
+  value = each.value
+}
+
+resource "aws_ssm_parameter" "watcher" {
+  for_each = local.watcher_env
+
+  name  = "/${var.project}/watcher/${each.key}"
   type  = "String"
   value = each.value
 }

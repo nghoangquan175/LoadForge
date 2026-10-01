@@ -2,8 +2,9 @@
 
 Auto-scaling playground. Learn traffic, load and resilience on AWS EC2.
 
-- `apps/dashboard`: Next.js dashboard, real-time via SSE (port 3100)
-- `apps/server`: NestJS API with AWS CloudWatch + Auto Scaling data and heavy load routes for k6 (port 4000)
+- `apps/dashboard`: Next.js dashboard (port 3100)
+- `apps/watcher`: NestJS, reads the Auto Scaling group + CloudWatch and streams it to the dashboard over SSE (port 4100)
+- `apps/defender`: NestJS, the servers under test: load routes for k6, publishes its own request metrics (port 4000)
 - `infra/`: Terraform for AWS (VPC, ALB, Auto Scaling Group)
 
 ## Requirements
@@ -15,34 +16,42 @@ Auto-scaling playground. Learn traffic, load and resilience on AWS EC2.
 
 ```bash
 npm install
-npm run dev          # server + dashboard
-npm run dev:server   # server only
+npm run dev            # defender + watcher + dashboard
+npm run dev:defender
+npm run dev:watcher
 npm run dev:dashboard
 ```
 
 - Dashboard: http://localhost:3100
-- API: http://localhost:4000/api
+- Watcher: http://localhost:4100/monitor
+- Defender: http://localhost:4000/api
 
-With no AWS setup, the server sends **mock** data from a simulated Auto Scaling group.
-If the server is down, the dashboard runs its own local simulation.
+With no AWS setup, the Watcher sends **mock** data from a simulated Auto Scaling group.
+If the Watcher is down, the dashboard runs its own local simulation.
 
-## API
+## Watcher routes
 
 | Route | What it does |
 |---|---|
-| `GET /api/stream` | SSE stream, one `snapshot` event per refresh |
-| `GET /api/snapshot` | Full dashboard snapshot |
-| `GET /api/instances` | ASG capacity + EC2 instances |
-| `GET /api/metrics` | CPU, requests, latency, 5xx series |
-| `GET /api/activities` | Scaling activity history |
-| `GET /api/health` | Health check for the load balancer |
+| `GET /monitor/stream` | SSE stream, one `snapshot` event per refresh |
+| `GET /monitor/snapshot` | Full dashboard snapshot |
+| `GET /monitor/instances` | ASG capacity + EC2 instances |
+| `GET /monitor/metrics` | CPU, requests, latency, 5xx series |
+| `GET /monitor/activities` | Scaling activity history |
+| `GET /monitor/health` | Health check for the load balancer |
+
+## Defender routes
+
+| Route | What it does |
+|---|---|
 | `GET /api/load/cpu?limit=300000` | Counts primes (CPU bound) |
+| `GET /api/health` | Health check |
 
-Every response has an `X-Served-By` header, so you can see which instance answered.
+Every Defender response has an `X-Served-By` header, so you can see which instance answered.
 
-## Server config
+## Watcher config
 
-Copy `apps/server/.env.example` to `apps/server/.env`.
+Copy `apps/watcher/.env.example` to `apps/watcher/.env`.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -53,6 +62,9 @@ Copy `apps/server/.env.example` to `apps/server/.env`.
 | `TARGET_CPU` | `60` | Used if the ASG has no target tracking policy |
 | `AWS_POLL_MS` | `15000` | How often to call AWS |
 | `CORS_ORIGINS` | `http://localhost:3100` | Comma separated |
+
+The Defender (`apps/defender/.env.example`) only needs `PORT`, `CORS_ORIGINS`, and on AWS
+`PUBLISH_METRICS=true` + `INSTANCE_ID` to publish its request metrics.
 
 AWS credentials come from the normal AWS SDK chain (`aws configure`, env vars, or the EC2 instance role).
 Enable detailed monitoring on the instances to get 1-minute CPU data.
