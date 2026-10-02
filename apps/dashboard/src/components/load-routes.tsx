@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { fmtDuration, fmtInt } from '@/lib/format';
 import { LOAD_ROUTE } from '@/lib/load-routes';
 import { MAX_RATE, MAX_TOTAL, type RunStatus, type ServerStats, useLoadRunner } from '@/lib/use-load-runner';
@@ -67,7 +67,8 @@ function validate(v: Record<Field, string>): string | null {
 }
 
 /** onActiveChange: a test exists (running, paused or finished), so the panel wants more room. */
-export function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boolean) => void }) {
+// Memo: nothing here depends on the dashboard's live data, which re-renders it every second.
+export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boolean) => void }) {
   const [values, setValues] = useState<Record<Field, string>>({ total: '4800', minutes: '5', rate: '16' });
   // Fields the user typed, oldest first; the third one is computed.
   const [typed, setTyped] = useState<Field[]>(['minutes', 'rate']);
@@ -198,7 +199,7 @@ export function LoadRoutes({ onActiveChange }: { onActiveChange?: (active: boole
       )}
     </div>
   );
-}
+});
 
 type Health = 'ok' | 'busy' | 'overloaded' | 'error';
 

@@ -9,13 +9,20 @@ import type {
   DashboardSnapshot,
   Ec2Instance,
   InstanceMetrics,
+  LivePoint,
   MetricPoint,
   ScalingActivity,
 } from '../common/types.js';
 
 export const SIM_PERIOD_MS = 2000;
 
-const WINDOW = 90;
+/** Like CloudWatch: one point per minute over the last hour... */
+const MINUTE = 60_000;
+const HISTORY_MS = 60 * MINUTE;
+/** ...and a minute only shows up this long after it ended. /live covers the gap. */
+const CLOUDWATCH_DELAY_MS = 60_000;
+/** Sim steps kept: the hour plus the delay plus the minute in progress. */
+const WINDOW = (HISTORY_MS + CLOUDWATCH_DELAY_MS + 2 * MINUTE) / SIM_PERIOD_MS;
 const REGION = 'ap-southeast-1';
 const AZS = ['ap-southeast-1a', 'ap-southeast-1b'];
 const ASG_NAME = 'loadforge-asg';
@@ -280,23 +287,110 @@ export function toSnapshot(s: SimState): DashboardSnapshot {
     targetCpu: TARGET_CPU,
     instances,
     metrics: {
-      periodSec: SIM_PERIOD_MS / 1000,
-      cpu: [...s.cpu],
-      requests: [...s.requests],
-      latencyMs: [...s.latencyMs],
-      errors5xx: [...s.errors5xx],
+      periodSec: MINUTE / 1000,
+      cpu: minutes(s.cpu, s.now),
+      requests: minutes(s.requests, s.now),
+      latencyMs: minutes(s.latencyMs, s.now),
+      errors5xx: minutes(s.errors5xx, s.now),
       byInstance: Object.fromEntries(
         s.instances.map((i) => [
           i.id,
           {
-            cpu: [...i.history.cpu],
-            requests: [...i.history.requests],
-            latencyMs: [...i.history.latencyMs],
-            errors5xx: [...i.history.errors5xx],
+            cpu: minutes(i.history.cpu, s.now),
+            requests: minutes(i.history.requests, s.now),
+            latencyMs: minutes(i.history.latencyMs, s.now),
+            errors5xx: minutes(i.history.errors5xx, s.now),
           },
         ]),
       ),
     },
     activities: [...s.activities],
   };
+}
+
+/** Sim steps as CloudWatch would serve them: minute averages over the last hour, late by the delay. */
+function minutes(series: MetricPoint[], now: number): MetricPoint[] {
+  const newest = Math.floor((now - CLOUDWATCH_DELAY_MS) / MINUTE) * MINUTE - MINUTE;
+  const oldest = newest - HISTORY_MS + MINUTE;
+  const sums = new Map<number, { sum: number; n: number }>();
+  for (const p of series) {
+    const m = Math.floor(p.t / MINUTE) * MINUTE;
+    if (m < oldest || m > newest) continue;
+    const b = sums.get(m) ?? { sum: 0, n: 0 };
+    b.sum += p.v;
+    b.n++;
+    sums.set(m, b);
+  }
+  return [...sums].sort(([a], [b]) => a - b).map(([t, b]) => ({ t, v: round1(b.sum / b.n) }));
+}
+
+/** Same jitter for the same second on every call: the Watcher re-reads recent seconds. */
+function jitter(t: number, salt: number): number {
+  const x = Math.sin(t / 1000 * 12.9898 + salt * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * What each server's /live route would return: one point per second over the
+ * last 5 minutes, from the sim's 2 s steps plus a little per-second jitter.
+ */
+export function liveFor(s: SimState, now: number): Record<string, LivePoint[]> {
+  const newest = Math.floor(now / 1000) * 1000 - 2000;
+  const out: Record<string, LivePoint[]> = {};
+  s.instances.forEach((inst, k) => {
+    const h = inst.history;
+    const points: LivePoint[] = [];
+    let i = 0;
+    for (let t = newest - 299_000; t <= newest; t += 1000) {
+      while (i + 1 < h.cpu.length && h.cpu[i + 1].t <= t) i++;
+      if (!h.cpu[i] || h.cpu[i].t > t) continue;
+      const salt = k + 1;
+      const wobble = 0.85 + 0.3 * jitter(t, salt);
+      const perSecond = (h.requests[i]?.v ?? 0) / 60;
+      points.push({
+        t,
+        cpu: round1(clamp(h.cpu[i].v * (0.94 + 0.12 * jitter(t, salt + 7)), 0, 100)),
+        requests: Math.round(perSecond * wobble),
+        latencyMs: perSecond ? Math.round((h.latencyMs[i]?.v ?? 0) * wobble) : 0,
+        errors5xx: Math.floor((h.errors5xx[i]?.v ?? 0) / 60 + jitter(t, salt + 13)),
+      });
+    }
+    out[inst.id] = points;
+  });
+  return out;
+}
+
+const STEP_MS = 15_000;
+
+/** What each server's /live?step=15 would return: its last hour in finished 15 s steps. */
+export function historyFor(s: SimState, now: number): Record<string, LivePoint[]> {
+  const newest = Math.floor(now / STEP_MS) * STEP_MS - STEP_MS;
+  const oldest = newest - HISTORY_MS + STEP_MS;
+  const out: Record<string, LivePoint[]> = {};
+  for (const inst of s.instances) {
+    const h = inst.history;
+    const steps = new Map<number, { n: number; cpu: number; req: number; lat: number; err: number }>();
+    h.cpu.forEach((p, i) => {
+      const t = Math.floor(p.t / STEP_MS) * STEP_MS;
+      if (t < oldest || t > newest) return;
+      const b = steps.get(t) ?? { n: 0, cpu: 0, req: 0, lat: 0, err: 0 };
+      b.n++;
+      b.cpu += p.v;
+      b.req += h.requests[i]?.v ?? 0;
+      b.lat += h.latencyMs[i]?.v ?? 0;
+      b.err += h.errors5xx[i]?.v ?? 0;
+      steps.set(t, b);
+    });
+    // Sim series are per-minute rates; a step holds a quarter of a minute.
+    out[inst.id] = [...steps]
+      .sort(([a], [b]) => a - b)
+      .map(([t, b]) => ({
+        t,
+        cpu: round1(b.cpu / b.n),
+        requests: Math.round(b.req / b.n / 4),
+        latencyMs: Math.round(b.lat / b.n),
+        errors5xx: Math.round(b.err / b.n / 4),
+      }));
+  }
+  return out;
 }

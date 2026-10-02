@@ -90,6 +90,18 @@ variable "target_cpu" {
   default     = 60
 }
 
+variable "danger_cpu" {
+  description = "Average CPU % that, held for 30 s, triggers the danger scale-out."
+  type        = number
+  default     = 90
+}
+
+variable "danger_scale_out" {
+  description = "Defenders the danger alarm adds at once."
+  type        = number
+  default     = 2
+}
+
 variable "dashboard_user" {
   description = "Dashboard login user. The password is generated, see outputs."
   type        = string

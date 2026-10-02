@@ -77,3 +77,14 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_app_health" {
   from_port                    = local.health_port
   to_port                      = local.health_port
 }
+
+# The Watcher (dashboard instance) reads each Defender's /live every second,
+# served by the same Node primary as the health check.
+resource "aws_vpc_security_group_ingress_rule" "app_live_from_web" {
+  security_group_id            = aws_security_group.app.id
+  description                  = "Live metrics (/live) from the Watcher"
+  referenced_security_group_id = aws_security_group.web.id
+  ip_protocol                  = "tcp"
+  from_port                    = local.health_port
+  to_port                      = local.health_port
+}

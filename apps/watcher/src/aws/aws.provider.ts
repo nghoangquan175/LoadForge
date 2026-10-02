@@ -186,6 +186,16 @@ export class AwsSnapshotProvider implements SnapshotProvider {
     };
   }
 
+  /** The group's servers and their private IPs, for /live. Auto Scaling + EC2 only: free, no CloudWatch. */
+  async servers(): Promise<{ id: string; privateIp?: string }[]> {
+    const groups = await this.autoscaling.send(
+      new DescribeAutoScalingGroupsCommand({ AutoScalingGroupNames: [this.config.asgName!] }),
+    );
+    const ids = (groups.AutoScalingGroups?.[0]?.Instances ?? []).map((m) => m.InstanceId).filter((id): id is string => !!id);
+    const details = await this.describeInstances(ids);
+    return ids.map((id) => ({ id, privateIp: details.get(id)?.PrivateIpAddress }));
+  }
+
   private async describeInstances(ids: string[]): Promise<Map<string, Instance>> {
     const map = new Map<string, Instance>();
     if (!ids.length) return map;

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { fmtDayTime } from '@/lib/format';
 import type { ActivityKind, ActivityStatus, ScalingActivity } from '@/lib/types';
 
@@ -15,7 +16,8 @@ const STATUS: Record<ActivityStatus, { icon: string; className: string }> = {
 };
 
 /** Terminal-style feed of Auto Scaling activities, newest first. */
-export function ActivityLog({ activities }: { activities: ScalingActivity[] }) {
+// Memo: the dashboard re-renders every second for live data; the log only changes with a snapshot.
+export const ActivityLog = memo(function ActivityLog({ activities }: { activities: ScalingActivity[] }) {
   return (
     <div className="flex h-full flex-col rounded-[3px] border border-line bg-bg/80 text-[11.5px] leading-relaxed">
       <div className="border-b border-line px-3 py-2 text-muted">
@@ -44,4 +46,4 @@ export function ActivityLog({ activities }: { activities: ScalingActivity[] }) {
       </ol>
     </div>
   );
-}
+});

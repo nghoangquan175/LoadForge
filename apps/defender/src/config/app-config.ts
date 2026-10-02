@@ -7,6 +7,8 @@ export interface AppConfig {
   publishMetrics: boolean;
   /** EC2 instance id, set by the deploy script */
   instanceId?: string;
+  /** Auto Scaling group this server is in; enables the 10 s CPU metric for the danger alarm */
+  asgName?: string;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -26,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     region: env.AWS_REGION ?? 'ap-southeast-1',
     publishMetrics: env.PUBLISH_METRICS === 'true',
     instanceId: env.INSTANCE_ID || undefined,
+    asgName: env.ASG_NAME || undefined,
   };
 }

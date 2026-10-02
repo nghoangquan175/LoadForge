@@ -5,7 +5,14 @@
 set -euxo pipefail
 exec > >(tee -a /var/log/loadforge-bootstrap.log) 2>&1
 
+%{ if docker_preinstalled ~}
+# ECS-optimized AMI: Docker is built in. Its ECS agent is not used, stop it
+# before it starts (it is queued after user-data) and on every later boot.
+systemctl mask --now --no-block ecs.service
+command -v aws >/dev/null || dnf install -y awscli-2
+%{ else ~}
 dnf install -y docker
+%{ endif ~}
 systemctl enable --now docker
 
 # Deploy script: runs now, and again whenever CI ships a new image

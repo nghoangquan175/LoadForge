@@ -78,6 +78,41 @@ export interface ScalingActivity {
   cause?: string;
 }
 
+/**
+ * One second (or one 15 s step) of one Defender, from its /live route.
+ * Same shape as apps/defender/src/live.
+ */
+export interface LivePoint {
+  /** start of the second or step, epoch ms */
+  t: number;
+  /** whole-machine CPU, % */
+  cpu: number;
+  /** requests finished in this second or step */
+  requests: number;
+  /** average response time of those requests, ms */
+  latencyMs: number;
+  /** 5xx responses in this second or step */
+  errors5xx: number;
+}
+
+/**
+ * `live` stream event, keyed by instance id. The first one after connecting
+ * holds everything the Watcher has; later ones only what is new, which may
+ * correct points sent before.
+ */
+export interface LiveUpdate {
+  /** one point per second, the last few minutes */
+  points: Record<string, LivePoint[]>;
+  /** 15 s steps over the last hour, from each Defender's own cache */
+  history?: Record<string, LivePoint[]>;
+  /**
+   * From here on the Watcher has every server's 15 s steps, so a group total
+   * or average is right. Before it, a server that is gone may be missing:
+   * the dashboard uses CloudWatch there.
+   */
+  historySince?: number;
+}
+
 export interface DashboardSnapshot {
   /** epoch ms */
   ts: number;

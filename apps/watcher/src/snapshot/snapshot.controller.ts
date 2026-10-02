@@ -1,15 +1,25 @@
 import { Controller, Get, type MessageEvent, Sse } from '@nestjs/common';
-import { map, type Observable } from 'rxjs';
+import { map, merge, type Observable } from 'rxjs';
+import { LiveService } from '../live/live.service.js';
 import { SnapshotService } from './snapshot.service.js';
 
 @Controller()
 export class SnapshotController {
-  constructor(private readonly snapshots: SnapshotService) {}
+  constructor(
+    private readonly snapshots: SnapshotService,
+    private readonly live: LiveService,
+  ) {}
 
-  /** Real-time feed for the dashboard: one `snapshot` event per refresh. */
+  /**
+   * Feed for the dashboard: a `snapshot` event per refresh (ASG, CloudWatch's
+   * last hour) and a `live` event every second (each server's last seconds).
+   */
   @Sse('stream')
   stream(): Observable<MessageEvent> {
-    return this.snapshots.snapshots$.pipe(map((data) => ({ type: 'snapshot', data })));
+    return merge(
+      this.snapshots.snapshots$.pipe(map((data) => ({ type: 'snapshot', data }))),
+      this.live.updates$.pipe(map((data) => ({ type: 'live', data }))),
+    );
   }
 
   @Get('snapshot')

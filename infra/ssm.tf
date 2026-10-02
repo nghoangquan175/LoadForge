@@ -35,6 +35,8 @@ locals {
     WEB_CONCURRENCY = "auto"
     # Health check served by the Node primary, see alb.tf.
     HEALTH_PORT = tostring(local.health_port)
+    # The primary publishes CPU every 10 s for the danger alarm, see compute.tf.
+    ASG_NAME = local.asg_name
   }
 
   watcher_env = {
@@ -44,6 +46,8 @@ locals {
     ALB_ARN_SUFFIX = aws_lb.main.arn_suffix
     TARGET_CPU     = tostring(var.target_cpu)
     CORS_ORIGINS   = join(",", var.dashboard_origins)
+    # Each Defender's /live, on its health port (security.tf).
+    DEFENDER_LIVE_PORT = tostring(local.health_port)
   }
 }
 

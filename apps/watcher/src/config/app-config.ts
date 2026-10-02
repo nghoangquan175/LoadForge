@@ -11,8 +11,13 @@ export interface AppConfig {
   albArnSuffix?: string;
   /** used when the ASG has no target tracking policy */
   targetCpu: number;
+  /** how often to read the ASG and CloudWatch (the 60-minute history) */
   awsPollMs: number;
   mockTickMs: number;
+  /** how often to read each Defender's /live (the last minutes CloudWatch has not got yet) */
+  livePollMs: number;
+  /** Defender port serving /live: the Node primary's health port */
+  defenderLivePort: number;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -40,5 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     targetCpu: int(env.TARGET_CPU, 60),
     awsPollMs: int(env.AWS_POLL_MS, 15_000),
     mockTickMs: int(env.MOCK_TICK_MS, 2_000),
+    livePollMs: int(env.LIVE_POLL_MS, 1_000),
+    defenderLivePort: int(env.DEFENDER_LIVE_PORT, 4001),
   };
 }

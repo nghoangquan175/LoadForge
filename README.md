@@ -33,7 +33,7 @@ If the Watcher is down, the dashboard runs its own local simulation.
 
 | Route | What it does |
 |---|---|
-| `GET /monitor/stream` | SSE stream, one `snapshot` event per refresh |
+| `GET /monitor/stream` | SSE stream: a `snapshot` event per refresh (ASG, CloudWatch's last hour) and a `live` event every second (each Defender's last seconds) |
 | `GET /monitor/snapshot` | Full dashboard snapshot |
 | `GET /monitor/instances` | ASG capacity + EC2 instances |
 | `GET /monitor/metrics` | CPU, requests, latency, 5xx series |
@@ -46,6 +46,7 @@ If the Watcher is down, the dashboard runs its own local simulation.
 |---|---|
 | `GET /api/load/cpu?limit=300000` | Counts primes (CPU bound) |
 | `GET /api/health` | Health check |
+| `GET :4001/live?since=<ms>` | Last 5 minutes, one point per second (CPU, requests, latency, 5xx). Served by the Node primary on the health port, so it is not traffic. Read by the Watcher |
 
 Every Defender response has an `X-Served-By` header, so you can see which instance answered.
 
@@ -60,7 +61,9 @@ Copy `apps/watcher/.env.example` to `apps/watcher/.env`.
 | `ASG_NAME` | | Auto Scaling group to watch |
 | `ALB_ARN_SUFFIX` | | e.g. `app/loadforge-alb/abc123`, enables request / latency / 5xx charts |
 | `TARGET_CPU` | `60` | Used if the ASG has no target tracking policy |
-| `AWS_POLL_MS` | `15000` | How often to call AWS |
+| `AWS_POLL_MS` | `15000` | How often to call AWS (ASG + CloudWatch's last hour) |
+| `LIVE_POLL_MS` | `1000` | How often to read each Defender's `/live` |
+| `DEFENDER_LIVE_PORT` | `4001` | Defender port serving `/live` (its health port) |
 | `CORS_ORIGINS` | `http://localhost:3100` | Comma separated |
 
 The Defender (`apps/defender/.env.example`) only needs `PORT`, `CORS_ORIGINS`, and on AWS

@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react';
+'use client';
+
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useSteadyScroll, useTween, type ViewMove } from '@/lib/motion';
 import type { MetricPoint } from '@/lib/types';
 
 export type Severity = 'ok' | 'warn' | 'crit';
@@ -24,25 +27,47 @@ interface StatTileProps {
   note: string;
   severity: Severity;
   trend?: MetricPoint[];
+  /** Full history length, so a short series is drawn to the same time scale. */
+  historyMs?: number;
 }
 
-/** Tiny trend line; the full chart below carries axes and hover. */
-function Sparkline({ points, color }: { points: MetricPoint[]; color: string }) {
-  if (points.length < 2) return null;
+/** Sparklines never pan: always following live. */
+const FOLLOW: ViewMove = { snap: false };
+
+/** Tiny trend line; the full chart below carries axes and hover. Slides left as new points arrive. */
+function Sparkline({ points, color, historyMs }: { points: MetricPoint[]; color: string; historyMs?: number }) {
+  const pathRef = useRef<SVGPathElement>(null);
+  const first = points[0]?.t ?? 0;
+  const newest = points[points.length - 1]?.t ?? 1;
   const vs = points.map((p) => p.v);
-  const lo = Math.min(...vs);
-  const span = Math.max(...vs) - lo || 1;
-  const d = vs
-    .map((v, i) => `${i ? 'L' : 'M'}${((i / (vs.length - 1)) * 100).toFixed(2)},${(28 - ((v - lo) / span) * 26 - 1).toFixed(2)}`)
+  const target: Record<string, number> = { span: historyMs || newest - first || 1, lo: Math.min(...vs), hi: Math.max(...vs) };
+  for (const p of points) target[`v${p.t}`] = p.v;
+  const get = useTween(target);
+  const span = get('span');
+
+  // Drawn as if the view ended at the newest point; scrolling only shifts it.
+  const shift = (edge: number) =>
+    pathRef.current?.setAttribute('transform', `translate(${(((newest - edge) / span) * 100).toFixed(3)},0)`);
+  const edge = useSteadyScroll(newest, true, FOLLOW, shift);
+  useLayoutEffect(() => {
+    shift(edge());
+  });
+  if (points.length < 2) return null;
+
+  const lo = get('lo');
+  const range = get('hi') - lo || 1;
+  // By time, not by index: points outside the box are clipped by the svg.
+  const d = points
+    .map((p, i) => `${i ? 'L' : 'M'}${(((p.t - (newest - span)) / span) * 100).toFixed(2)},${(28 - ((get(`v${p.t}`) - lo) / range) * 26 - 1).toFixed(2)}`)
     .join('');
   return (
     <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="h-7 w-full" aria-hidden>
-      <path d={d} fill="none" stroke={color} strokeOpacity={0.8} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      <path ref={pathRef} d={d} fill="none" stroke={color} strokeOpacity={0.8} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
     </svg>
   );
 }
 
-export function StatTile({ label, value, unit, color, note, severity, trend }: StatTileProps) {
+export function StatTile({ label, value, unit, color, note, severity, trend, historyMs }: StatTileProps) {
   return (
     <div className="brackets relative flex min-w-0 flex-col justify-between gap-3 overflow-hidden border border-line bg-panel/90 px-4 py-3">
       <div className="absolute inset-y-0 left-0 w-0.5" style={{ background: color }} />
@@ -57,7 +82,7 @@ export function StatTile({ label, value, unit, color, note, severity, trend }: S
           {note}
         </div>
       </div>
-      {trend && <Sparkline points={trend} color={color} />}
+      {trend && <Sparkline points={trend} color={color} historyMs={historyMs} />}
     </div>
   );
 }

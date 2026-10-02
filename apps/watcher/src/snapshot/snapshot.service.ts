@@ -2,8 +2,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import { BehaviorSubject, filter, Observable } from 'rxjs';
 import { AwsSnapshotProvider } from '../aws/aws.provider.js';
 import { MockSnapshotProvider } from '../aws/mock.provider.js';
-import type { SnapshotProvider } from '../aws/snapshot-provider.js';
-import type { DashboardSnapshot } from '../common/types.js';
+import type { DashboardSnapshot, LivePoint } from '../common/types.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 
 /**
@@ -16,7 +15,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 export class SnapshotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SnapshotService.name);
   private readonly latest = new BehaviorSubject<DashboardSnapshot | null>(null);
-  private readonly aws: SnapshotProvider | null;
+  private readonly aws: AwsSnapshotProvider | null;
   private readonly mock = new MockSnapshotProvider();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private awsHealthy = false;
@@ -52,6 +51,27 @@ export class SnapshotService implements OnModuleInit, OnModuleDestroy {
     this.stopped = true;
     clearTimeout(this.timer);
     this.latest.complete();
+  }
+
+  /** The last snapshot sent, null before the first one. */
+  get snapshot(): DashboardSnapshot | null {
+    return this.latest.value;
+  }
+
+  /** With mock data: what each simulated server's /live would return. */
+  mockLive(): Record<string, LivePoint[]> {
+    return this.mock.live();
+  }
+
+  /** With mock data: what each simulated server's /live?step=15 would return. */
+  mockHistory() {
+    return this.mock.history();
+  }
+
+  /** Real servers to read /live from, or null while the dashboard shows mock data. */
+  async servers(): Promise<{ id: string; privateIp?: string }[] | null> {
+    if (!this.aws || (this.config.dataSource === 'auto' && !this.awsHealthy)) return null;
+    return this.aws.servers();
   }
 
   /** For REST calls: the cached snapshot while fresh, otherwise a new one. */
