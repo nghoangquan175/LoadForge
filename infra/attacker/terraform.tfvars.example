@@ -1,0 +1,2 @@
+# Copy to terraform.tfvars and set who may reach the control port.
+control_cidr = "YOUR.PUBLIC.IP/32"

@@ -13,7 +13,7 @@ TAG="${1:-latest}"
 cd "$(dirname "$0")/.."
 SHA="$(git rev-parse --short HEAD)"
 
-for app in defender watcher dashboard; do
+for app in defender watcher dashboard attacker; do
   image="ghcr.io/$OWNER/loadforge-$app"
   docker build --platform linux/amd64 -f "apps/$app/Dockerfile" -t "$image:$TAG" -t "$image:$SHA" .
   docker push "$image:$TAG"

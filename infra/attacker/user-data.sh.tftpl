@@ -1,0 +1,30 @@
+#!/bin/bash
+# Boots the LoadForge attacker: Docker, then the k6 load generator container.
+# Log: /var/log/attacker-bootstrap.log
+set -euxo pipefail
+exec > >(tee -a /var/log/attacker-bootstrap.log) 2>&1
+
+dnf install -y docker
+systemctl enable --now docker
+
+# GHCR login with the shared read:packages token (never written to the log).
+set +x
+TOKEN=$(aws ssm get-parameter --region ${region} --name "${ghcr_token_param}" --with-decryption --query Parameter.Value --output text)
+echo "$TOKEN" | docker login ghcr.io --username ${ghcr_user} --password-stdin
+unset TOKEN
+set -x
+
+docker rm -f attacker 2>/dev/null || true
+docker pull ${image}
+docker run -d --name attacker --restart unless-stopped \
+  -p ${control_port}:${control_port} \
+  -e PORT=${control_port} \
+  -e ATTACK_TARGET='${attack_target}' \
+  -e MAX_RATE=${max_rate} \
+  -e MAX_DURATION_SEC=${max_duration_sec} \
+  -e CONTROL_TOKEN='${control_token}' \
+  -e CORS_ORIGINS='${cors_origins}' \
+  ${image}
+
+docker logout ghcr.io || true
+echo "attacker started"
