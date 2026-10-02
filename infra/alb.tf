@@ -33,6 +33,12 @@ resource "aws_lb_target_group" "app" {
   # Short drain so scale-in is quick to watch.
   deregistration_delay = 30
 
+  # Each request goes to the server with the fewest requests still in flight,
+  # not round robin: a server that just started (zero in flight) takes most of
+  # the new traffic until it is as busy as the others. Slow start stays off,
+  # it would do the opposite (and AWS does not allow it with this algorithm).
+  load_balancing_algorithm_type = "least_outstanding_requests"
+
   # Checked on the Node primary's own port (HEALTH_PORT), not the API:
   # the workers queue requests behind CPU-heavy ones, so a check sent there
   # times out when the server is only busy and the ASG would replace it.
