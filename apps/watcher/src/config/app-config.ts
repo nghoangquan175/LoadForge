@@ -18,6 +18,10 @@ export interface AppConfig {
   livePollMs: number;
   /** Defender port serving /live: the Node primary's health port */
   defenderLivePort: number;
+  /** Attacker control API base (http://ip:4200), or undefined when no load generator is wired */
+  attackerUrl?: string;
+  /** bearer token for the Attacker's /control/* */
+  attackerToken?: string;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -47,5 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mockTickMs: int(env.MOCK_TICK_MS, 2_000),
     livePollMs: int(env.LIVE_POLL_MS, 1_000),
     defenderLivePort: int(env.DEFENDER_LIVE_PORT, 4001),
+    attackerUrl: env.ATTACKER_URL || undefined,
+    attackerToken: env.ATTACKER_TOKEN || undefined,
   };
 }

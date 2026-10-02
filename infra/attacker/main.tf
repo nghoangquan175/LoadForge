@@ -58,6 +58,23 @@ variable "control_cidr" {
   default     = "127.0.0.1/32"
 }
 
+variable "dashboard_cidr" {
+  description = "The dashboard/Watcher box's egress IP (/32), so the Watcher can proxy control calls. Empty = none."
+  type        = string
+  default     = ""
+}
+
+variable "subnet_id" {
+  description = <<-EOT
+    Subnet for the box. Must have an internet route (0.0.0.0/0 -> IGW) so it can
+    pull the image and reach the LoadForge ALB. Empty picks the first default
+    subnet, but a default VPC can have a subnet on a custom route table without
+    internet, so pin a known-good one here.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "control_port" {
   type    = number
   default = 4200
@@ -166,6 +183,16 @@ resource "aws_vpc_security_group_ingress_rule" "control" {
   to_port           = var.control_port
 }
 
+resource "aws_vpc_security_group_ingress_rule" "control_dashboard" {
+  count             = var.dashboard_cidr == "" ? 0 : 1
+  security_group_id = aws_security_group.attacker.id
+  description       = "Control API from the dashboard/Watcher box"
+  cidr_ipv4         = var.dashboard_cidr
+  ip_protocol       = "tcp"
+  from_port         = var.control_port
+  to_port           = var.control_port
+}
+
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.attacker.id
   description       = "Reach the LoadForge ALB, GHCR and AWS APIs"
@@ -217,7 +244,7 @@ resource "aws_iam_instance_profile" "attacker" {
 resource "aws_instance" "attacker" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.instance_type
-  subnet_id                   = data.aws_subnets.default.ids[0]
+  subnet_id                   = var.subnet_id != "" ? var.subnet_id : data.aws_subnets.default.ids[0]
   vpc_security_group_ids      = [aws_security_group.attacker.id]
   iam_instance_profile        = aws_iam_instance_profile.attacker.name
   associate_public_ip_address = true

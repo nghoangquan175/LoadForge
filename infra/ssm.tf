@@ -48,6 +48,10 @@ locals {
     CORS_ORIGINS   = join(",", var.dashboard_origins)
     # Each Defender's /live, on its health port (security.tf).
     DEFENDER_LIVE_PORT = tostring(local.health_port)
+    # The Attacker load generator (infra/attacker). The Watcher proxies the
+    # dashboard's load-test controls to it, so the token stays server-side.
+    ATTACKER_URL   = var.attacker_control_url
+    ATTACKER_TOKEN = var.attacker_control_token
   }
 }
 

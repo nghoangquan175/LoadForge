@@ -113,3 +113,16 @@ variable "dashboard_origins" {
   type        = list(string)
   default     = ["http://localhost:3100"]
 }
+
+variable "attacker_control_url" {
+  description = "Attacker control API base, from infra/attacker output control_url. Empty disables the Load test box."
+  type        = string
+  default     = ""
+}
+
+variable "attacker_control_token" {
+  description = "Attacker control token, from infra/attacker output control_token."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
