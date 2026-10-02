@@ -40,25 +40,42 @@ const STATUS_STYLE: Record<RunStatus, string> = {
 const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
 const tidy = (n: number, digits: number) => String(Number(n.toFixed(digits)));
 
-/** Fills the one field the user did not type, from the two they did. */
-function derive(target: Field, v: Record<Field, string>): string {
+/** How far a running test is: what a changed plan builds on. Zero before it starts. */
+interface Progress {
+  /** requests already sent or dropped */
+  scheduled: number;
+  /** running time so far, s */
+  elapsedSec: number;
+}
+
+const NOT_STARTED: Progress = { scheduled: 0, elapsedSec: 0 };
+
+/**
+ * Fills the one field the user did not type, from the two they did. Total and
+ * duration are for the whole test, so during a test only what is left is at
+ * the new rate: total = scheduled + rate x (duration - elapsed).
+ */
+function derive(target: Field, v: Record<Field, string>, at: Progress): string {
   const total = num(v.total);
   const seconds = num(v.minutes) * 60;
   const rate = num(v.rate);
   switch (target) {
     case 'total':
-      return tidy(Math.round(rate * seconds), 0);
+      return tidy(at.scheduled + Math.round(rate * (seconds - at.elapsedSec)), 0);
     case 'minutes':
-      return tidy(total / rate / 60, 2);
+      return tidy((at.elapsedSec + (total - at.scheduled) / rate) / 60, 2);
     case 'rate':
-      return tidy(total / seconds, 2);
+      return tidy((total - at.scheduled) / (seconds - at.elapsedSec), 2);
   }
 }
 
-function validate(v: Record<Field, string>): string | null {
+function validate(v: Record<Field, string>, at: Progress): string | null {
   const total = num(v.total);
   const minutes = num(v.minutes);
   const rate = num(v.rate);
+  // During a test first: past these, the computed field would come out negative.
+  if (at.scheduled && total <= at.scheduled) return `total must be above the ${fmtInt(at.scheduled)} requests already sent`;
+  if (at.elapsedSec && minutes * 60 <= at.elapsedSec) return `duration must be above the ${fmtDuration(at.elapsedSec * 1000)} already run`;
   if ([total, minutes, rate].some((n) => !Number.isFinite(n) || n <= 0)) return 'fill any two fields with numbers above 0';
   if (total > MAX_TOTAL) return `total requests max ${fmtInt(MAX_TOTAL)}`;
   if (minutes > MAX_MINUTES) return `duration max ${MAX_MINUTES} min`;
@@ -72,15 +89,23 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
   const [values, setValues] = useState<Record<Field, string>>({ total: '4800', minutes: '5', rate: '16' });
   // Fields the user typed, oldest first; the third one is computed.
   const [typed, setTyped] = useState<Field[]>(['minutes', 'rate']);
-  const { stats, start, stop, resume, remove } = useLoadRunner();
-  // The plan is fixed once a test exists; delete it to change it.
+  const { stats, start, update, stop, resume, remove } = useLoadRunner();
+  // A test exists: the panel shows its report.
   const locked = stats.status !== 'idle';
   useEffect(() => onActiveChange?.(locked), [locked, onActiveChange]);
+  // While running or paused the plan stays editable and is applied to the test as it goes.
+  const live = stats.status === 'running' || stats.status === 'paused';
+  const at: Progress = live ? { scheduled: stats.sent + stats.dropped, elapsedSec: stats.elapsedMs / 1000 } : NOT_STARTED;
 
   const route = LOAD_ROUTE;
   const url = `${API_URL}${route.path}?${route.query}`;
   const derived = FIELDS.find((f) => !typed.slice(-2).includes(f));
-  const error = validate(values);
+  const error = validate(values, at);
+  // Typed but not applied yet: the test keeps its plan until "apply".
+  const changed = live && (Number(values.total) !== stats.total || Number(values.rate) !== stats.rate);
+  const apply = () => {
+    if (changed && !error) update(Number(values.total), Number(values.rate));
+  };
 
   const edit = (field: Field, raw: string) => {
     const next = { ...values, [field]: raw };
@@ -88,14 +113,16 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
     const inputs = order.filter((f) => Number.isFinite(num(next[f])) && num(next[f]) > 0).slice(-2);
     if (inputs.length === 2) {
       const target = FIELDS.find((f) => !inputs.includes(f))!;
-      next[target] = derive(target, next);
+      next[target] = derive(target, next, at);
     }
     setValues(next);
     setTyped(order);
   };
 
   const elapsed = stats.elapsedMs;
-  const achieved = elapsed > 0 ? stats.sent / (elapsed / 1000) : 0;
+  // Since the plan last changed, so it compares with the current rate.
+  const sinceChange = elapsed - stats.planChangedAtMs;
+  const achieved = sinceChange > 0 ? (stats.sent - stats.sentAtPlanChange) / (sinceChange / 1000) : 0;
   const progress = stats.total ? Math.min(100, ((stats.sent + stats.dropped) / stats.total) * 100) : 0;
   const done = stats.ok + stats.failed;
 
@@ -107,7 +134,9 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
       </div>
 
       <div className="rounded-[3px] border border-line bg-bg/80 p-3">
-        <div className="mb-2 text-[10px] tracking-[0.18em] text-muted uppercase">load plan · fill any two</div>
+        <div className="mb-2 text-[10px] tracking-[0.18em] text-muted uppercase">
+          load plan · fill any two{live && ' · change it while the test runs'}
+        </div>
         <div className="grid grid-cols-3 gap-2">
           {FIELDS.map((f) => (
             <label key={f} className="block min-w-0">
@@ -118,8 +147,9 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
               <input
                 inputMode="decimal"
                 value={values[f]}
-                disabled={locked}
+                disabled={locked && !live}
                 onChange={(e) => edit(f, e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && apply()}
                 className={`mt-1 w-full border bg-bg px-2 py-1.5 text-sm tabular-nums outline-none focus:border-accent/70 disabled:opacity-60 ${
                   f === derived ? 'border-cyan/40 text-cyan' : 'border-line text-ink'
                 }`}
@@ -127,7 +157,7 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
             </label>
           ))}
         </div>
-        {error && !locked && (
+        {error && (!locked || changed) && (
           <p className="mt-2 text-[11px] text-crit">
             <span aria-hidden>✖ </span>
             {error}
@@ -142,6 +172,15 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
               className={`${BTN} border-accent/70 bg-accent/10 text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50`}
             >
               <Icon name="play" />start load
+            </button>
+          )}
+          {changed && (
+            <button
+              onClick={apply}
+              disabled={!!error}
+              className={`${BTN} border-cyan/70 bg-cyan/10 text-cyan hover:bg-cyan/20 disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              apply changes
             </button>
           )}
           {stats.status === 'running' && (
@@ -184,7 +223,7 @@ export const LoadRoutes = memo(function LoadRoutes({ onActiveChange }: { onActiv
               [
                 'rate',
                 `${achieved.toFixed(1)} / ${stats.rate} /s`,
-                stats.status === 'running' && achieved < stats.rate * 0.9 && elapsed > 3000 ? 'text-warn' : 'text-ink',
+                stats.status === 'running' && achieved < stats.rate * 0.9 && sinceChange > 3000 ? 'text-warn' : 'text-ink',
               ],
             ].map(([k, v, cls]) => (
               <div key={k}>

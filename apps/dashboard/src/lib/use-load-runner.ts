@@ -9,6 +9,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 //
 // idle --start--> running --stop--> paused --continue--> running --...--> finished
 //   ^------------------------- delete (from any state) ----------------------'
+//
+// While running or paused, `update` changes the total and the rate: the
+// schedule goes on from where it is at the new rate, nothing restarts.
 
 export const MAX_RATE = 200;
 export const MAX_TOTAL = 200_000;
@@ -45,6 +48,9 @@ export interface RunStats {
   avgMs: number;
   /** time spent running, pauses excluded */
   elapsedMs: number;
+  /** running time and requests sent when the plan last changed (0 at start), for the current rate */
+  planChangedAtMs: number;
+  sentAtPlanChange: number;
   servers: ServerStats[];
 }
 
@@ -59,6 +65,8 @@ const IDLE: RunStats = {
   inFlight: 0,
   avgMs: 0,
   elapsedMs: 0,
+  planChangedAtMs: 0,
+  sentAtPlanChange: 0,
   servers: [],
 };
 
@@ -81,10 +89,20 @@ interface Live extends RunStats {
   bankedMs: number;
   /** start of the current run segment, null while not running */
   resumedAt: number | null;
+  /** requests scheduled (sent or dropped) when the plan last changed; the current rate counts from there */
+  scheduledAtPlanChange: number;
   tallies: Map<string, ServerTally>;
 }
 
-const idleLive = (): Live => ({ ...IDLE, url: '', latencySum: 0, bankedMs: 0, resumedAt: null, tallies: new Map() });
+const idleLive = (): Live => ({
+  ...IDLE,
+  url: '',
+  latencySum: 0,
+  bankedMs: 0,
+  resumedAt: null,
+  scheduledAtPlanChange: 0,
+  tallies: new Map(),
+});
 
 export function useLoadRunner() {
   const [stats, setStats] = useState<RunStats>(IDLE);
@@ -108,6 +126,8 @@ export function useLoadRunner() {
       inFlight: s.inFlight,
       avgMs: done ? s.latencySum / done : 0,
       elapsedMs: activeMs(s),
+      planChangedAtMs: s.planChangedAtMs,
+      sentAtPlanChange: s.sentAtPlanChange,
       servers: [...s.tallies.entries()]
         .map(([id, t]) => ({
           id,
@@ -182,8 +202,10 @@ export function useLoadRunner() {
     };
 
     timers.current.tick = setInterval(() => {
-      // Requests that should have gone out by now, counting running time only.
-      const due = Math.min(s.total, Math.floor((activeMs(s) / 1000) * s.rate) + 1);
+      // Requests that should have gone out by now, counting running time only;
+      // at the current rate since the plan last changed. The first goes out at once.
+      const sinceChange = ((activeMs(s) - s.planChangedAtMs) / 1000) * s.rate;
+      const due = Math.min(s.total, s.scheduledAtPlanChange + Math.floor(sinceChange) + (s.scheduledAtPlanChange ? 0 : 1));
       // More than a second behind (tab asleep): skip the backlog.
       const behind = due - (s.sent + s.dropped);
       const lateLimit = Math.ceil(s.rate);
@@ -211,6 +233,25 @@ export function useLoadRunner() {
       run();
     },
     [halt, run],
+  );
+
+  /**
+   * New total and rate for the test that is running or paused. Requests
+   * already scheduled stay; the new rate counts from now. A total below what
+   * was already scheduled ends the test once open requests finish.
+   */
+  const update = useCallback(
+    (total: number, rate: number) => {
+      const s = live.current;
+      if (s.status !== 'running' && s.status !== 'paused') return;
+      s.scheduledAtPlanChange = s.sent + s.dropped;
+      s.planChangedAtMs = activeMs(s);
+      s.sentAtPlanChange = s.sent;
+      s.total = Math.max(total, s.scheduledAtPlanChange);
+      s.rate = rate;
+      publish();
+    },
+    [publish],
   );
 
   const stop = useCallback(() => {
@@ -242,5 +283,5 @@ export function useLoadRunner() {
     [],
   );
 
-  return { stats, start, stop, resume, remove };
+  return { stats, start, update, stop, resume, remove };
 }
