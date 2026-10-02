@@ -120,6 +120,36 @@ jobs:
           # healthy before an old one stops, so no downtime even with 1 server.
           # A newer image supersedes any refresh still running.
           aws autoscaling cancel-instance-refresh --auto-scaling-group-name "$ASG_NAME" >/dev/null 2>&1 || true
+
+          # The refresh launches one new server per running one. With light
+          # traffic that is wasted: first shrink to what the CPU target needs
+          # (busiest 5 minutes of the last 10, at least the group's minimum).
+          # Under load nothing is removed, and the scaling rules grow the group
+          # again if load comes back.
+          read -r desired min <<<"$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG_NAME" \
+            --query 'AutoScalingGroups[0].[DesiredCapacity,MinSize]' --output text)"
+          target=$(aws autoscaling describe-policies --auto-scaling-group-name "$ASG_NAME" --policy-types TargetTrackingScaling \
+            --query 'ScalingPolicies[0].TargetTrackingConfiguration.TargetValue' --output text)
+          cpu=$(aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization \
+            --dimensions Name=AutoScalingGroupName,Value="$ASG_NAME" \
+            --start-time "$(date -u -d '-10 minutes' +%FT%TZ)" --end-time "$(date -u +%FT%TZ)" \
+            --period 300 --statistics Average --query 'max(Datapoints[].Average)' --output text)
+          if [ "$cpu" != "None" ] && [ "$target" != "None" ]; then
+            needed=$(awk -v d="$desired" -v c="$cpu" -v t="$target" -v m="$min" \
+              'BEGIN { n = d * c / t; n = (n == int(n)) ? n : int(n) + 1; print (n < m ? m : n) }')
+            echo "avg CPU ${cpu}% on $desired servers (target ${target}%): $needed needed"
+            if [ "$needed" -lt "$desired" ]; then
+              aws autoscaling set-desired-capacity --auto-scaling-group-name "$ASG_NAME" \
+                --desired-capacity "$needed" --no-honor-cooldown
+              # Let the extra servers drain and go before refreshing the rest.
+              for attempt in $(seq 1 40); do
+                busy=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG_NAME" \
+                  --query "length(AutoScalingGroups[0].Instances[?LifecycleState!='InService'])" --output text)
+                [ "$busy" = "0" ] && break
+                sleep 15
+              done
+            fi
+          fi
           for attempt in $(seq 1 20); do
             if id=$(aws autoscaling start-instance-refresh --auto-scaling-group-name "$ASG_NAME" \
                  --preferences '{"MinHealthyPercentage":100,"MaxHealthyPercentage":200,"InstanceWarmup":60}' \

@@ -101,6 +101,8 @@ data "aws_iam_policy_document" "deploy" {
     actions = [
       "autoscaling:StartInstanceRefresh",
       "autoscaling:CancelInstanceRefresh",
+      # Shrinks the group to what traffic needs before a refresh (deploy.yml).
+      "autoscaling:SetDesiredCapacity",
     ]
     resources = ["arn:aws:autoscaling:${var.region}:${local.account_id}:autoScalingGroup:*:autoScalingGroupName/${var.project}-asg"]
   }
@@ -128,6 +130,8 @@ data "aws_iam_policy_document" "deploy" {
     actions = [
       "autoscaling:DescribeAutoScalingGroups",
       "autoscaling:DescribeInstanceRefreshes",
+      "autoscaling:DescribePolicies",
+      "cloudwatch:GetMetricStatistics",
       "ec2:DescribeInstances",
       "ssm:GetCommandInvocation",
     ]
