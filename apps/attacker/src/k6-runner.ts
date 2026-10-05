@@ -1,8 +1,41 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { get as httpGet } from 'node:http';
 import type { AttackerConfig } from './config.js';
 import type { AttackPlan } from './plan.js';
 
 export type RunState = 'idle' | 'running';
+
+/** What k6 is really doing right now, read live from its REST API. */
+export interface LiveMetrics {
+  /** the arrival rate we asked k6 to hold (req/s) */
+  requestedRate: number;
+  /** requests k6 actually sent, per second */
+  sentRate: number;
+  /** iterations k6 skipped because every VU was busy — never sent (per second) */
+  droppedRate: number;
+  sentTotal: number;
+  droppedTotal: number;
+  vus: number;
+  vusMax: number;
+  avgMs: number;
+  p95Ms: number;
+}
+
+/** The slice of k6's JSON:API `/v1/metrics` payload we read. */
+interface K6Sample {
+  count?: number;
+  rate?: number;
+  value?: number;
+  avg?: number;
+  'p(95)'?: number;
+}
+interface K6Metric {
+  id?: string;
+  attributes?: { sample?: K6Sample };
+}
+interface K6MetricsResponse {
+  data?: K6Metric[];
+}
 
 export interface Status {
   state: RunState;
@@ -43,6 +76,68 @@ export class K6Runner {
       endsAt: running ? this.endsAt : undefined,
       lastResult: this.lastResult,
     };
+  }
+
+  /**
+   * Live counters from the running k6 (its REST API on 127.0.0.1:6565), so a
+   * caller can see whether k6 is actually holding the requested rate or dropping
+   * iterations because the target is too slow for the VU budget. Returns
+   * undefined when nothing is running or k6's API is unreachable.
+   */
+  async metrics(): Promise<LiveMetrics | undefined> {
+    if (!this.child || !this.plan) return undefined;
+    const body = await this.fetchK6Metrics();
+    if (!body || !Array.isArray(body.data)) return undefined;
+
+    const samples = new Map<string, K6Sample>();
+    for (const m of body.data) {
+      if (m.id && m.attributes?.sample) samples.set(m.id, m.attributes.sample);
+    }
+    const num = (v: number | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    const reqs = samples.get('http_reqs') ?? {};
+    const dropped = samples.get('dropped_iterations') ?? {};
+    const dur = samples.get('http_req_duration') ?? {};
+    const vus = samples.get('vus') ?? {};
+    const vusMax = samples.get('vus_max') ?? {};
+
+    return {
+      requestedRate: this.plan.rate,
+      sentRate: Math.round(num(reqs.rate)),
+      droppedRate: Math.round(num(dropped.rate)),
+      sentTotal: Math.round(num(reqs.count)),
+      droppedTotal: Math.round(num(dropped.count)),
+      vus: num(vus.value),
+      vusMax: num(vusMax.value),
+      avgMs: Math.round(num(dur.avg)),
+      p95Ms: Math.round(num(dur['p(95)'])),
+    };
+  }
+
+  private fetchK6Metrics(): Promise<K6MetricsResponse | undefined> {
+    return new Promise((resolve) => {
+      const req = httpGet({ host: '127.0.0.1', port: 6565, path: '/v1/metrics', timeout: 1000 }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve(undefined);
+          return;
+        }
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => (data += chunk));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data) as K6MetricsResponse);
+          } catch {
+            resolve(undefined);
+          }
+        });
+      });
+      req.on('error', () => resolve(undefined));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(undefined);
+      });
+    });
   }
 
   /** Starts a run, replacing any current one. */

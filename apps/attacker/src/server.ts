@@ -59,7 +59,9 @@ export function createControlServer(config: AttackerConfig, runner = new K6Runne
     if (!authorized(req)) return send(res, 401, { error: 'missing or wrong control token' });
 
     if (req.method === 'GET' && path === '/control/status') {
-      return send(res, 200, runner.status());
+      const status = runner.status();
+      const metrics = await runner.metrics();
+      return send(res, 200, metrics ? { ...status, metrics } : status);
     }
 
     if (req.method === 'POST' && path === '/control/stop') {

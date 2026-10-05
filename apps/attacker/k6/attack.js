@@ -15,6 +15,13 @@ const MAX_VUS = Number(__ENV.MAX_VUS || 500);
 
 if (!TARGET) throw new Error('TARGET is required (set by the attacker service)');
 
+// A constant arrival rate needs about `rate x latency` VUs in flight. Starting
+// at 50 and growing makes k6 drop iterations during the ramp even when the box
+// could hold the rate, so pre-allocate ~1 VU per req/s (enough while the target
+// is fast) and let k6 grow to MAX_VUS as the target slows. Past MAX_VUS, k6
+// reports dropped_iterations rather than allocating without bound.
+const preAllocatedVUs = Math.min(MAX_VUS, Math.max(50, RATE));
+
 export const options = {
   scenarios: {
     surge: {
@@ -22,7 +29,7 @@ export const options = {
       rate: RATE,
       timeUnit: '1s',
       duration: DURATION,
-      preAllocatedVUs: Math.min(50, MAX_VUS),
+      preAllocatedVUs,
       maxVUs: MAX_VUS,
     },
   },

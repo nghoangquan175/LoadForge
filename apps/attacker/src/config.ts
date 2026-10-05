@@ -15,7 +15,13 @@ export interface AttackerConfig {
   maxRate: number;
   /** duration ceiling (seconds) a request may ask for */
   maxDurationSec: number;
-  /** k6 VU ceiling, so a slow target cannot make k6 allocate without bound */
+  /**
+   * k6 VU ceiling. Sized for the generator box (t3.small): high enough that VUs
+   * are not the artificial limit *below* the target's own capacity, low enough
+   * not to exhaust the box's memory. When the target is too slow to hold the
+   * rate within this many VUs, k6 drops iterations (reported on /control/status)
+   * instead of allocating without bound. Tune with MAX_VUS.
+   */
   maxVus: number;
   /** bearer token the caller must send, or empty to allow any caller the network lets through */
   controlToken: string;
@@ -50,7 +56,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AttackerConfig
     target,
     maxRate: int(env.MAX_RATE, 1000),
     maxDurationSec: int(env.MAX_DURATION_SEC, 1800),
-    maxVus: int(env.MAX_VUS, 800),
+    maxVus: int(env.MAX_VUS, 1500),
     controlToken: env.CONTROL_TOKEN ?? '',
     corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:3100')
       .split(',')
